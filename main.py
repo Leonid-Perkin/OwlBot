@@ -4,6 +4,7 @@ import os
 from datetime import datetime
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
+from aiogram.types import ChatMemberUpdated
 import logging
 from config import API_TOKEN
 
@@ -12,7 +13,7 @@ logging.basicConfig(level=logging.INFO)
 bot = Bot(token=API_TOKEN)
 dp = Dispatcher()
 
-db_path = "users.db"  
+db_path = "users.db"
 
 def check_and_update_db():
     if not os.path.exists(db_path):
@@ -37,6 +38,12 @@ async def add_user_to_db(user_id: int, username: str, chat_id: int):
                        (user_id, username, chat_id))
         conn.commit()
 
+async def remove_user_from_db(user_id: int, chat_id: int):
+    with sqlite3.connect(db_path) as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM users WHERE user_id = ? AND chat_id = ?", (user_id, chat_id))
+        conn.commit()
+
 async def update_chat_last_interaction(chat_id: int):
     current_time = get_current_time() 
     with sqlite3.connect(db_path) as conn:
@@ -49,7 +56,17 @@ async def remove_chat_users(chat_id: int):
     with sqlite3.connect(db_path) as conn:
         cursor = conn.cursor()
         cursor.execute("DELETE FROM users WHERE chat_id = ?", (chat_id,))
+        cursor.execute("DELETE FROM date WHERE chat_id = ?", (chat_id,))
         conn.commit()
+        users_deleted = cursor.rowcount
+        logging.info(f"Удалено пользователей: {users_deleted}")
+        
+        cursor.execute("SELECT * FROM date WHERE chat_id = ?", (chat_id,))
+        result = cursor.fetchone()
+        if result:
+            logging.error(f"Чат с chat_id {chat_id} не был удален из таблицы date.")
+        else:
+            logging.info(f"Чат с chat_id {chat_id} успешно удален из таблицы date.")
 
 @dp.message(Command("start"))
 async def send_welcome(message: types.Message):
@@ -88,6 +105,7 @@ async def help_message(message: types.Message):
     /mention_all - Упомянуть всех пользователей чата и обновить время последнего обращения.
     /remove_chat_users - Удалить всех пользователей из базы данных для этого чата.
     """)
+
 @dp.message(Command("last_interaction"))
 async def last_interaction(message: types.Message):
     with sqlite3.connect(db_path) as conn:
@@ -107,7 +125,16 @@ async def remove_chat(message: types.Message):
         return
     
     await remove_chat_users(message.chat.id)
-    await message.answer("Все пользователи были удалены из базы данных этого чата.")
+    await message.answer("Все пользователи были удалены из базы данных этого чата, и информация о чате удалена из таблицы date.")
+
+async def chat_member_updated_handler(event: ChatMemberUpdated):
+    if event.new_chat_member.status == "member":
+        await add_user_to_db(event.new_chat_member.user.id, event.new_chat_member.user.username or "", event.chat.id)
+        logging.info(f"Пользователь {event.new_chat_member.user.id} добавлен в базу данных.")
+    
+    elif event.new_chat_member.status == "left":
+        await remove_user_from_db(event.old_chat_member.user.id, event.chat.id)
+        logging.info(f"Пользователь {event.old_chat_member.user.id} удален из базы данных.")
 
 async def main():
     dp.message.register(send_welcome, Command("start"))
@@ -115,6 +142,7 @@ async def main():
     dp.message.register(help_message, Command("help"))
     dp.message.register(last_interaction, Command("last_interaction"))
     dp.message.register(remove_chat, Command("remove_chat_users"))
+    dp.chat_member.register(chat_member_updated_handler)
     
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
