@@ -1,1 +1,1 @@
-API_TOKEN = 'Bottoken'
+API_TOKEN = 'Bot-token'
