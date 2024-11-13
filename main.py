@@ -2,11 +2,15 @@ import asyncio
 import sqlite3
 import os
 from datetime import datetime
-from aiogram import Bot, Dispatcher, types
+from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
+from aiogram.fsm.state import StatesGroup, State
+from aiogram.fsm.context import FSMContext
 from aiogram.types import ChatMemberUpdated
 import logging
 from config import API_TOKEN
+class DeleteChatState(StatesGroup):
+    waiting_for_confirmation = State() 
 
 logging.basicConfig(level=logging.INFO)
 
@@ -119,22 +123,38 @@ async def last_interaction(message: types.Message):
             await message.answer("Информация о последней активности отсутствует.")
 
 @dp.message(Command("remove_chat_users"))
-async def remove_chat(message: types.Message):
+async def remove_chat(message: types.Message, state: FSMContext):
     if message.from_user.id not in [admin.user.id for admin in await bot.get_chat_administrators(message.chat.id)]:
         await message.answer("Эта команда доступна только администраторам чата.")
         return
-    
-    await remove_chat_users(message.chat.id)
-    await message.answer("Все пользователи были удалены из базы данных этого чата, и информация о чате удалена из таблицы date.")
+    await message.answer("Вы уверены, что хотите удалить всех пользователей и информацию о чате из базы данных? Ответьте 'да' для подтверждения или 'нет' для отмены.")
+    await state.set_state(DeleteChatState.waiting_for_confirmation)
+
+@dp.message(DeleteChatState.waiting_for_confirmation, F.text.lower().in_(['да', 'нет']))
+async def confirm_deletion(message: types.Message, state: FSMContext):
+    if message.text.lower() == "да":
+        await remove_chat_users(message.chat.id)
+        await message.answer("Все пользователи были удалены из базы данных этого чата, и информация о чате удалена из таблицы date.")
+    else:
+        await message.answer("Удаление отменено.")
+    await state.clear()
+
 
 async def chat_member_updated_handler(event: ChatMemberUpdated):
     if event.new_chat_member.status == "member":
         await add_user_to_db(event.new_chat_member.user.id, event.new_chat_member.user.username or "", event.chat.id)
+        await bot.send_message(event.chat.id, f"Добавлен пользователь {event.new_chat_member.user.username}")
         logging.info(f"Пользователь {event.new_chat_member.user.id} добавлен в базу данных.")
     
     elif event.new_chat_member.status == "left":
         await remove_user_from_db(event.old_chat_member.user.id, event.chat.id)
+        await bot.send_message(event.chat.id, f"Удалён пользователь {event.old_chat_member.user.username}")
         logging.info(f"Пользователь {event.old_chat_member.user.id} удален из базы данных.")
+    elif event.new_chat_member.status == "kicked":
+        await remove_user_from_db(event.old_chat_member.user.id, event.chat.id)
+        await bot.send_message(event.chat.id, f"Удалён пользователь {event.old_chat_member.user.username}")
+        logging.info(f"Пользователь {event.old_chat_member.user.id} удален из базы данных.")
+
 
 async def main():
     dp.message.register(send_welcome, Command("start"))
