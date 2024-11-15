@@ -2,8 +2,10 @@ version: '3'
 services:
   app:
     build: .
+    container_name: OwlBot
     volumes:
       - ./config.py:/app/config.py
       - ./users.db:/app/users.db
     environment:
       - DATABASE_URL=sqlite:///app/users.db
+      - TZ=Europe/Moscow

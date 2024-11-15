@@ -74,70 +74,88 @@ async def remove_chat_users(chat_id: int):
 
 @dp.message(Command("start"))
 async def send_welcome(message: types.Message):
-    await add_user_to_db(message.from_user.id, message.from_user.username or "", message.chat.id)
-    await message.answer("Привет! Ты был добавлен в список пользователей. Это бот для сбора всех участников чата.")
+    if message.chat.type == "private":
+        await message.reply("Добавьте бота в чат с правами администратора")
+    else:
+        await add_user_to_db(message.from_user.id, message.from_user.username or "", message.chat.id)
+        await message.answer("Привет! Ты был добавлен в список пользователей. Это бот для сбора всех участников чата.")
 
 @dp.message(Command("mention_all"))
 async def mention_all(message: types.Message):
-    chat_member = await bot.get_chat_member(message.chat.id, message.from_user.id)
-    if chat_member.status not in ["administrator", "creator"]:
-        await message.answer("Эта команда доступна только администраторам.")
-        return
-    
-    await update_chat_last_interaction(message.chat.id)
-    
-    with sqlite3.connect(db_path) as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT user_id, username FROM users WHERE chat_id = ?", (message.chat.id,))
-        users = cursor.fetchall()
-    
-    mentions = []
-    for user_id, username in users:
-        mention = f"[{username}](tg://user?id={user_id})" if username else f"[User {user_id}](tg://user?id={user_id})"
-        mentions.append(mention)
-    
-    if mentions:
-        await message.answer(" ".join(mentions), parse_mode="Markdown")
+    if message.chat.type == "private":
+        await message.reply("Добавьте бота в чат с правами администратора")
     else:
-        await message.answer("Нет пользователей для упоминания.")
+        chat_member = await bot.get_chat_member(message.chat.id, message.from_user.id)
+        if chat_member.status not in ["administrator", "creator"]:
+            await message.answer("Эта команда доступна только администраторам.")
+            return
+        
+        await update_chat_last_interaction(message.chat.id)
+        
+        with sqlite3.connect(db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT user_id, username FROM users WHERE chat_id = ?", (message.chat.id,))
+            users = cursor.fetchall()
+        
+        mentions = []
+        for user_id, username in users:
+            mention = f"[{username}](tg://user?id={user_id})" if username else f"[User {user_id}](tg://user?id={user_id})"
+            mentions.append(mention)
+        
+        if mentions:
+            await message.answer(" ".join(mentions), parse_mode="Markdown")
+        else:
+            await message.answer("Нет пользователей для упоминания.")
 
 @dp.message(Command("help"))
 async def help_message(message: types.Message):
-    await message.answer("""
-    Доступные команды:
-    /start - Приветственное сообщение и добавление в базу данных.
-    /mention_all - Упомянуть всех пользователей чата и обновить время последнего обращения.
-    /remove_chat_users - Удалить всех пользователей из базы данных для этого чата.
-    """)
+    if message.chat.type == "private":
+        await message.reply("Добавьте бота в чат с правами администратора")
+    else:
+        await message.answer("""
+        Доступные команды:
+        /start - Приветственное сообщение и добавление в базу данных.
+        /mention_all - Упомянуть всех пользователей чата и обновить время последнего обращения.
+        /remove_chat_users - Удалить всех пользователей из базы данных для этого чата.
+        """)
 
 @dp.message(Command("last_interaction"))
 async def last_interaction(message: types.Message):
-    with sqlite3.connect(db_path) as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT date FROM date WHERE chat_id = ?", (message.chat.id,))
-        result = cursor.fetchone()
-        if result:
-            last_time = result[0] 
-            await message.answer(f"Последняя активность в чате: {last_time}")
-        else:
-            await message.answer("Информация о последней активности отсутствует.")
+    if message.chat.type == "private":
+        await message.reply("Добавьте бота в чат с правами администратора")
+    else:
+        with sqlite3.connect(db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT date FROM date WHERE chat_id = ?", (message.chat.id,))
+            result = cursor.fetchone()
+            if result:
+                last_time = result[0] 
+                await message.answer(f"Последняя активность в чате: {last_time}")
+            else:
+                await message.answer("Информация о последней активности отсутствует.")
 
 @dp.message(Command("remove_chat_users"))
 async def remove_chat(message: types.Message, state: FSMContext):
-    if message.from_user.id not in [admin.user.id for admin in await bot.get_chat_administrators(message.chat.id)]:
-        await message.answer("Эта команда доступна только администраторам чата.")
-        return
-    await message.answer("Вы уверены, что хотите удалить всех пользователей и информацию о чате из базы данных? Ответьте 'да' для подтверждения или 'нет' для отмены.")
-    await state.set_state(DeleteChatState.waiting_for_confirmation)
+    if message.chat.type == "private":
+        await message.reply("Добавьте бота в чат с правами администратора")
+    else:
+        if message.from_user.id not in [admin.user.id for admin in await bot.get_chat_administrators(message.chat.id)]:
+            await message.answer("Эта команда доступна только администраторам чата.")
+            return
+        await message.answer("Вы уверены, что хотите удалить всех пользователей и информацию о чате из базы данных? Ответьте 'да' для подтверждения или 'нет' для отмены.")
+        await state.set_state(DeleteChatState.waiting_for_confirmation)
 
 @dp.message(DeleteChatState.waiting_for_confirmation, F.text.lower().in_(['да', 'нет']))
 async def confirm_deletion(message: types.Message, state: FSMContext):
-    if message.text.lower() == "да":
-        await remove_chat_users(message.chat.id)
-        await message.answer("Все пользователи были удалены из базы данных этого чата, и информация о чате удалена из таблицы date.")
+    if message.chat.type == "private":
+        await message.reply("Добавьте бота в чат с правами администратора")
     else:
-        await message.answer("Удаление отменено.")
-    await state.clear()
+        if message.text.lower() == "да":
+            await remove_chat_users(message.chat.id)
+            await message.answer("Все пользователи были удалены из базы данных этого чата, и информация о чате удалена из таблицы date.")
+        else:
+            await message.answer("Удаление отменено.")
+        await state.clear()
 
 
 async def chat_member_updated_handler(event: ChatMemberUpdated):
