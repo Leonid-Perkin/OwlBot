@@ -12,7 +12,7 @@ from config import API_TOKEN
 class DeleteChatState(StatesGroup):
     waiting_for_confirmation = State() 
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.WARN)
 
 bot = Bot(token=API_TOKEN)
 dp = Dispatcher()
