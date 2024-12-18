@@ -2,11 +2,14 @@ import asyncio
 import sqlite3
 import os
 from datetime import datetime
+from urllib.parse import quote
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
 from aiogram.fsm.state import StatesGroup, State
 from aiogram.fsm.context import FSMContext
 from aiogram.types import ChatMemberUpdated
+from playwright.async_api import async_playwright
+from bs4 import BeautifulSoup
 import logging
 from config import API_TOKEN
 class DeleteChatState(StatesGroup):
@@ -71,7 +74,40 @@ async def remove_chat_users(chat_id: int):
             logging.error(f"Чат с chat_id {chat_id} не был удален из таблицы date.")
         else:
             logging.info(f"Чат с chat_id {chat_id} успешно удален из таблицы date.")
-
+async def get_schedule(group: str, date: str):
+    encoded_group = quote(group)
+    base_url = f"https://schedule-of.mirea.ru/?scheduleTitle={encoded_group}&date="
+    url = f"{base_url}{date}"
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True)
+        context = await browser.new_context(
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+        )
+        page = await context.new_page()
+        await page.goto(url)
+        await page.wait_for_load_state("networkidle")
+        html_content = await page.content()
+        await browser.close()
+    soup = BeautifulSoup(html_content, 'html.parser')
+    schedule_blocks = soup.find_all('div', class_='TimeLine_fullcalendarText__fm4tW')
+    schedule = []
+    for block in schedule_blocks:
+        time_and_subject = block.find('strong', class_='TimeLine_eventTitle__oq7tU')
+        time_subject_text = time_and_subject.text.strip() if time_and_subject else "Нет данных"
+        details_block = block.find('div', style='white-space: nowrap;')
+        if details_block:
+            details = details_block.find_all('strong')
+            room = details[0].text.strip() if len(details) > 0 else "Нет данных"
+            teacher = details_block.text.strip().replace(room, "").strip() if room != "Нет данных" else "Нет данных"
+        else:
+            room = "Нет данных"
+            teacher = "Нет данных"
+        schedule.append({
+            "time_subject": time_subject_text,
+            "room": room,
+            "teacher": teacher
+        })
+    return schedule
 @dp.message(Command("start"))
 async def send_welcome(message: types.Message):
     if message.chat.type == "private":
@@ -117,6 +153,7 @@ async def help_message(message: types.Message):
         /start - Приветственное сообщение и добавление в базу данных.
         /mention_all - Упомянуть всех пользователей чата и обновить время последнего обращения.
         /remove_chat_users - Удалить всех пользователей из базы данных для этого чата.
+        /schedule <группа> [дата] - Получить расписание на указанную дату. Если дата не указана, используется текущая.
         """)
 
 @dp.message(Command("last_interaction"))
@@ -156,7 +193,42 @@ async def confirm_deletion(message: types.Message, state: FSMContext):
         else:
             await message.answer("Удаление отменено.")
         await state.clear()
+@dp.message(Command("schedule"))
+async def fetch_schedule(message: types.Message):
+    if message.chat.type == "private":
+        await message.reply("Добавьте бота в чат с правами администратора")
+    else:
+        args = message.text.split()
+        if len(args) < 2:
+            await message.reply("Укажите группу. Например: /schedule БАСО-03-24 [дата]")
+            return
+        group = args[1]
+        date = args[2] if len(args) > 2 else datetime.now().strftime("%Y-%m-%d")
 
+        try:
+            schedule = await get_schedule(group, date)
+            if schedule:
+                response = f"Расписание для группы {group} на {date}:\n\n"
+                messages = []
+                for item in schedule:
+                    entry = (
+                        f"Время и предмет: {item['time_subject']}\n"
+                        f"Аудитория: {item['room']}, Преподаватель: {item['teacher']}\n"
+                        "-" * 1 + "\n"
+                    )
+                    response += entry
+                for item in schedule:
+                    print(f"Время и предмет: {item['time_subject']}")
+                    print(f"Аудитория: {item['room']}, Преподаватель: {item['teacher']}")
+                    print("-" * 50)
+                messages.append(response)
+                for part in messages:
+                    await message.reply(part)
+            else:
+                await message.reply(f"Расписание для группы {group} на {date} не найдено.")
+        except Exception as e:
+            logging.error(f"Ошибка при получении расписания: {e}")
+            await message.reply("Произошла ошибка при получении расписания. Попробуйте позже.")
 
 async def chat_member_updated_handler(event: ChatMemberUpdated):
     if event.new_chat_member.status == "member":
@@ -180,8 +252,8 @@ async def main():
     dp.message.register(help_message, Command("help"))
     dp.message.register(last_interaction, Command("last_interaction"))
     dp.message.register(remove_chat, Command("remove_chat_users"))
+    dp.message.register(fetch_schedule, Command("schedule"))
     dp.chat_member.register(chat_member_updated_handler)
-    
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
 
