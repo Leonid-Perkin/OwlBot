@@ -214,7 +214,7 @@ async def fetch_schedule(message: types.Message):
                     entry = (
                         f"Время и предмет: {item['time_subject']}\n"
                         f"Аудитория: {item['room']}, Преподаватель: {item['teacher']}\n"
-                        "-" * 1 + "\n"
+                        "\n"
                     )
                     response += entry
                 for item in schedule:
