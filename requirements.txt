@@ -1,1 +1,4 @@
 aiogram
+playwright
+beautifulsoup4
+urllib3
