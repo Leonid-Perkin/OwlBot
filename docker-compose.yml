@@ -1,7 +1,7 @@
 version: '3'
 services:
   app:
-    build: .
+    image: leonid27/owl-bot:latest
     container_name: OwlBot
     volumes:
       - ./config.py:/app/config.py
