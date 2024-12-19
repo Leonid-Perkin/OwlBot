@@ -1,6 +1,7 @@
 import asyncio
 import sqlite3
 import os
+import requests
 from datetime import datetime
 from urllib.parse import quote
 from aiogram import Bot, Dispatcher, types, F
@@ -14,6 +15,8 @@ import logging
 from config import API_TOKEN
 class DeleteChatState(StatesGroup):
     waiting_for_confirmation = State() 
+class HoroscopeState(StatesGroup):
+    waiting_for_choice = State()
 
 logging.basicConfig(level=logging.WARN)
 
@@ -108,6 +111,28 @@ async def get_schedule(group: str, date: str):
             "teacher": teacher
         })
     return schedule
+
+async def fetch_horoscope(sign):
+    url = f"https://horo.mail.ru/prediction/{sign}/today/"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36"
+    }
+
+    try:
+        response = requests.get(url, headers=headers)
+        response.raise_for_status()
+        soup = BeautifulSoup(response.text, "html.parser")
+        horoscope_div = soup.find("div", class_="b6a5d4949c e45a4c1552")
+        if horoscope_div:
+            horoscope = horoscope_div.get_text(strip=True)
+            return horoscope
+        else:
+            return "Не удалось найти гороскоп на странице. Проверьте структуру страницы."
+    except requests.exceptions.RequestException as e:
+        return f"Ошибка при запросе: {e}"
+    except AttributeError:
+        return "Не удалось найти гороскоп на странице. Проверьте селектор."
+    
 @dp.message(Command("start"))
 async def send_welcome(message: types.Message):
     if message.chat.type == "private":
@@ -244,7 +269,50 @@ async def chat_member_updated_handler(event: ChatMemberUpdated):
         await remove_user_from_db(event.old_chat_member.user.id, event.chat.id)
         await bot.send_message(event.chat.id, f"Удалён пользователь {event.old_chat_member.user.username}")
         logging.info(f"Пользователь {event.old_chat_member.user.id} удален из базы данных.")
+@dp.message(Command("horoscope"))
+async def fetch_horoscope_command(message: types.Message, state: FSMContext):
+    if message.chat.type == "private":
+        await message.reply("Добавьте бота в чат с правами администратора")
+    else:
+        zodiac_signs = {
+            "Овен": "aries",
+            "Телец": "taurus",
+            "Близнецы": "gemini",
+            "Рак": "cancer",
+            "Лев": "leo",
+            "Дева": "virgo",
+            "Весы": "libra",
+            "Скорпион": "scorpio",
+            "Стрелец": "sagittarius",
+            "Козерог": "capricorn",
+            "Водолей": "aquarius",
+            "Рыбы": "pisces"
+        }
+        choices_message = "Выберите знак зодиака:\n"
+        for i, (rus_name, _) in enumerate(zodiac_signs.items(), start=1):
+            choices_message += f"{i}. {rus_name}\n"
+        await message.answer(choices_message)
+        await state.set_state(HoroscopeState.waiting_for_choice)
+        await state.update_data(zodiac_signs=zodiac_signs)
 
+@dp.message(HoroscopeState.waiting_for_choice)
+async def handle_horoscope_choice(message: types.Message, state: FSMContext):
+    user_data = await state.get_data()
+    zodiac_signs = user_data.get("zodiac_signs")
+    if not message.text.isdigit():
+        await message.answer("Пожалуйста, введите число, соответствующее вашему выбору.")
+        return
+    choice = int(message.text)
+    if 1 <= choice <= len(zodiac_signs):
+        sign = list(zodiac_signs.values())[choice - 1]
+        rus_name = list(zodiac_signs.keys())[choice - 1]
+        horoscope = await fetch_horoscope(sign)
+        await message.answer(f"Гороскоп для {rus_name} на сегодня:")
+        await message.answer(f"{horoscope}")
+        await state.clear()
+    else:
+        await message.answer("Неверный выбор. Попробуйте снова.")
+        
 
 async def main():
     dp.message.register(send_welcome, Command("start"))
@@ -253,6 +321,7 @@ async def main():
     dp.message.register(last_interaction, Command("last_interaction"))
     dp.message.register(remove_chat, Command("remove_chat_users"))
     dp.message.register(fetch_schedule, Command("schedule"))
+    dp.message.register(fetch_schedule, Command("horoscope"))
     dp.chat_member.register(chat_member_updated_handler)
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
