@@ -6,6 +6,7 @@ services:
     volumes:
       - ./config.py:/app/config.py
       - ./users.db:/app/users.db
+      - ./lecturers.json:/app/lecturers.json
     environment:
       - DATABASE_URL=sqlite:///app/users.db
       - TZ=Europe/Moscow
