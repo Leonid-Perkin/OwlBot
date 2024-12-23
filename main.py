@@ -37,19 +37,52 @@ def check_and_update_db():
 
 check_and_update_db()
 def get_current_time():
+    """
+   Returns the current time in the format "dd.mm.YYYY-HH:MM".
+    """
     return datetime.now().strftime("%d.%m.%Y-%H:%M")
 async def add_user_to_db(user_id: int, username: str, chat_id: int):
+    """
+    Добавляет пользователя в базу данных.
+
+    Параметры:
+    user_id (int): ID пользователя.
+    username (str): Имя пользователя.
+    chat_id (int): ID чата.
+
+    Возвращает:
+    None
+    """
     with sqlite3.connect(db_path) as conn:
         cursor = conn.cursor()
         cursor.execute("INSERT OR IGNORE INTO users (user_id, username, chat_id) VALUES (?, ?, ?)", 
                        (user_id, username, chat_id))
         conn.commit()
 async def remove_user_from_db(user_id: int, chat_id: int):
+    """
+    Удаляет пользователя из базы данных.
+
+    Параметры:
+    user_id (int): ID пользователя.
+    chat_id (int): ID чата.
+
+    Возвращает:
+    None
+    """
     with sqlite3.connect(db_path) as conn:
         cursor = conn.cursor()
         cursor.execute("DELETE FROM users WHERE user_id = ? AND chat_id = ?", (user_id, chat_id))
         conn.commit()
 async def update_chat_last_interaction(chat_id: int):
+    """
+    Обновляет дату последней активности чата в базе данных.
+
+    Параметры:
+    chat_id (int): ID чата.
+
+    Возвращает:
+    None
+    """
     current_time = get_current_time() 
     with sqlite3.connect(db_path) as conn:
         cursor = conn.cursor()
@@ -57,6 +90,15 @@ async def update_chat_last_interaction(chat_id: int):
                        (chat_id, current_time))
         conn.commit()
 async def remove_chat_users(chat_id: int):
+    """
+    Удаляет всех пользователей из чата в базе данных.
+
+    Параметры:
+    chat_id (int): ID чата.
+
+    Возвращает:
+    None
+    """
     with sqlite3.connect(db_path) as conn:
         cursor = conn.cursor()
         cursor.execute("DELETE FROM users WHERE chat_id = ?", (chat_id,))
@@ -72,6 +114,16 @@ async def remove_chat_users(chat_id: int):
         else:
             logging.info(f"Чат с chat_id {chat_id} успешно удален из таблицы date.")
 async def get_schedule(group: str, date: str):
+    """
+    Получает расписание для указанной группы и даты.
+
+    Параметры:
+    group (str): Название группы.
+    date (str): Дата в формате "YYYY-MM-DD".
+
+    Возвращает:
+    List[Dict[str, str]]: Список словарей, где каждый словарь содержит информацию о времени и предмете, аудитории и преподавателе.
+    """
     encoded_group = quote(group)
     base_url = f"https://schedule-of.mirea.ru/?scheduleTitle={encoded_group}&date="
     url = f"{base_url}{date}"
@@ -106,6 +158,15 @@ async def get_schedule(group: str, date: str):
         })
     return schedule
 async def fetch_horoscope(sign):
+    """
+    Получает гороскоп для указанного знака зодиака.
+
+    Параметры:
+    sign (str): Знак зодиака.
+
+    Возвращает:
+    str: Гороскоп для указанного знака зодиака.
+    """
     url = f"https://horo.mail.ru/prediction/{sign}/today/"
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36"
@@ -126,6 +187,15 @@ async def fetch_horoscope(sign):
         return "Не удалось найти гороскоп на странице. Проверьте селектор."
 @dp.message(Command("start"))
 async def send_welcome(message: types.Message):
+    """
+    Обрабатывает команду /start.
+
+    Параметры:
+    message (types.Message): Сообщение, содержащее команду /start.
+
+    Возвращает:
+    None
+    """
     if message.chat.type == "private":
         await message.reply("Добавьте бота в чат с правами администратора")
     else:
@@ -133,6 +203,15 @@ async def send_welcome(message: types.Message):
         await message.answer("Привет! Ты был добавлен в список пользователей. Это бот для сбора всех участников чата.")
 @dp.message(Command("mention_all"))
 async def mention_all(message: types.Message):
+    """
+    Обрабатывает команду /mention_all.
+
+    Параметры:
+    message (types.Message): Сообщение, содержащее команду /mention_all.
+
+    Возвращает:
+    None
+    """
     if message.chat.type == "private":
         await message.reply("Добавьте бота в чат с правами администратора")
     else:
@@ -156,6 +235,15 @@ async def mention_all(message: types.Message):
             await message.answer("Нет пользователей для упоминания.")
 @dp.message(Command("help"))
 async def help_message(message: types.Message):
+    """
+    Обрабатывает команду /help.
+
+    Параметры:
+    message (types.Message): Сообщение, содержащее команду /help.
+
+    Возвращает:
+    None
+    """
     if message.chat.type == "private":
         await message.reply("Добавьте бота в чат с правами администратора")
     else:
