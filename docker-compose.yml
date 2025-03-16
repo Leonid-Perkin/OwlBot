@@ -4,8 +4,9 @@ services:
   owlbot:
     image: leonid27/owl-bot:latest
     volumes:
-      - ./tg.key:/app/tg.key
-      - ./schedule_cache:/app/schedule_cache
+      - ./tg.key:/app/tg.key:z
+      - ./schedule_cache:/app/schedule_cache:z
     environment:
       - PYTHONUNBUFFERED=1
+      - TZ=Europe/Moscow
     restart: unless-stopped

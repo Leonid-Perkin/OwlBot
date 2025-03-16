@@ -5,7 +5,9 @@ from telethon.errors import QueryIdInvalidError
 from utils import mention_all_users, get_day_schedule, get_week_schedule, fetch_horoscope, is_user_admin, format_schedule
 from menu import get_main_menu, get_group_selection_menu, get_horoscope_menu, zodiac_signs
 from datetime import datetime, timedelta
+
 submenu_messages = {}
+
 @events.register(events.NewMessage(pattern='/start'))
 async def start_command(event):
     await event.reply("Привет! Я бот для управления группой. Выбери действие:", buttons=get_main_menu())

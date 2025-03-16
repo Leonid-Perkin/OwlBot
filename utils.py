@@ -1,5 +1,4 @@
 import asyncio
-import logging
 from telethon.tl.types import ChannelParticipantsAdmins
 from urllib.parse import quote
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeoutError
@@ -11,9 +10,6 @@ from datetime import datetime, timedelta
 import requests
 from bs4 import BeautifulSoup
 from telethon.errors import QueryIdInvalidError
-
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
 
 CACHE_DIR = "schedule_cache"
 CACHE_TTL = 86400
@@ -59,56 +55,62 @@ def save_to_cache(group: str, date: str, schedule: list):
     with open(cache_filename, "w", encoding="utf-8") as f:
         json.dump(schedule, f, ensure_ascii=False, indent=2)
 
+def parse_time_to_minutes(time_str: str) -> int:
+    """Преобразует время в формате 'HH:MM' в минуты для сортировки."""
+    try:
+        start_time = time_str.split(" - ")[0]
+        hours, minutes = map(int, start_time.split(":"))
+        return hours * 60 + minutes
+    except (ValueError, IndexError):
+        return float('inf')
+
 async def get_day_schedule(group: str, date: str) -> list:
     cached_schedule = load_from_cache(group, date)
     if cached_schedule is not None:
-        logger.info(f"Загружено расписание из кэша для {group} на {date}")
         return cached_schedule
     
     encoded_group = quote(group)
     url = f"https://schedule-of.mirea.ru/?scheduleTitle={encoded_group}&date={date}"
-    logger.info(f"Запрос расписания: {url}")
 
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
+        browser = await p.chromium.launch(headless=True, args=['--disable-blink-features=AutomationControlled'])
         context = await browser.new_context(
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
             viewport={"width": 1280, "height": 720},
-            extra_http_headers={"Accept": "text/html,application/xhtml+xml"}
+            extra_http_headers={
+                "Accept": "text/html,application/xhtml+xml",
+                "Accept-Language": "en-US,en;q=0.9",
+                "Referer": "https://schedule-of.mirea.ru/"
+            }
         )
         page = await context.new_page()
 
         try:
-            logger.info("Загрузка страницы...")
-            await page.goto(url, wait_until="networkidle", timeout=30000)  # Увеличен тайм-аут до 30 секунд
+            await page.goto(url, wait_until="networkidle", timeout=60000)
             await page.wait_for_load_state("domcontentloaded")
-            logger.info("Страница загружена")
-            await asyncio.sleep(2)
-            schedule_blocks = await page.query_selector_all('div.TimeLine_fullcalendarText__fm4tW')
-            logger.info(f"Найдено блоков расписания: {len(schedule_blocks)}")
+            await asyncio.sleep(1)
 
+            await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+            await asyncio.sleep(0.5)
+
+            schedule_blocks = await page.query_selector_all('div.TimeLine_fullcalendarText__fm4tW')
             if not schedule_blocks:
-                logger.warning("Блоки расписания не найдены, возвращаем пустой список")
                 await browser.close()
                 return []
 
             schedule = []
             period = "Не указан"
 
-            for block in schedule_blocks:
+            for i, block in enumerate(schedule_blocks):
                 time_subject_elem = await block.query_selector('strong.TimeLine_eventTitle__oq7tU')
                 time_subject_text = await time_subject_elem.inner_text() if time_subject_elem else "Нет данных"
                 time_subject_text = time_subject_text.strip()
-                logger.debug(f"Обработка блока: {time_subject_text}")
 
                 if "неделя" in time_subject_text.lower() and not any(char in time_subject_text for char in [":", "-"]):
                     period = time_subject_text
                     continue
                 elif "сессия" in time_subject_text.lower() and not any(char in time_subject_text for char in [":", "-"]):
                     period = "Сессия"
-                    continue
-                
-                if not any(char.isdigit() for char in time_subject_text):
                     continue
                 
                 time_match = re.match(r"(\d{1,2}:\d{2})\s*-\s*(\d{1,2}:\d{2})\s*(.+)", time_subject_text)
@@ -129,14 +131,14 @@ async def get_day_schedule(group: str, date: str) -> list:
                 room = await details_block.query_selector('strong') if details_block else None
                 room = await room.inner_text() if room else "Нет данных"
                 room = room.strip()
+
                 await block.hover()
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(0.2)
                 try:
                     dialog = await page.wait_for_selector('div[role="dialog"]', timeout=5000)
                     extra_info = (await dialog.inner_text()).strip().split("\n") if dialog else []
                     await page.mouse.click(0, 0)
                 except PlaywrightTimeoutError:
-                    logger.warning("Всплывающее окно не появилось")
                     extra_info = []
 
                 teacher = "Нет данных"
@@ -175,10 +177,9 @@ async def get_day_schedule(group: str, date: str) -> list:
                     "groups": groups
                 })
 
-            logger.info(f"Расписание успешно обработано: {len(schedule)} пар")
+            schedule.sort(key=lambda x: parse_time_to_minutes(x["time"]))
 
-        except Exception as e:
-            logger.error(f"Ошибка при парсинге расписания: {e}")
+        except Exception:
             schedule = []
 
         finally:
