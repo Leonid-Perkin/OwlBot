@@ -1,7 +1,8 @@
 import asyncio
+import logging
 from telethon.tl.types import ChannelParticipantsAdmins
 from urllib.parse import quote
-from playwright.async_api import async_playwright
+from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeoutError
 import json
 import os
 import time
@@ -10,6 +11,9 @@ from datetime import datetime, timedelta
 import requests
 from bs4 import BeautifulSoup
 from telethon.errors import QueryIdInvalidError
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 CACHE_DIR = "schedule_cache"
 CACHE_TTL = 86400
@@ -58,104 +62,128 @@ def save_to_cache(group: str, date: str, schedule: list):
 async def get_day_schedule(group: str, date: str) -> list:
     cached_schedule = load_from_cache(group, date)
     if cached_schedule is not None:
+        logger.info(f"Загружено расписание из кэша для {group} на {date}")
         return cached_schedule
     
     encoded_group = quote(group)
     url = f"https://schedule-of.mirea.ru/?scheduleTitle={encoded_group}&date={date}"
-    
+    logger.info(f"Запрос расписания: {url}")
+
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
         context = await browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+            viewport={"width": 1280, "height": 720},
             extra_http_headers={"Accept": "text/html,application/xhtml+xml"}
         )
         page = await context.new_page()
-        
-        await page.goto(url)
-        await page.wait_for_load_state("domcontentloaded")
-        
-        schedule_blocks = await page.query_selector_all('div.TimeLine_fullcalendarText__fm4tW')
-        schedule = []
-        period = "Не указан"
-        
-        for block in schedule_blocks:
-            time_subject_elem = await block.query_selector('strong.TimeLine_eventTitle__oq7tU')
-            time_subject_text = await time_subject_elem.inner_text() if time_subject_elem else "Нет данных"
-            time_subject_text = time_subject_text.strip()
-            
-            if "неделя" in time_subject_text.lower() and not any(char in time_subject_text for char in [":", "-"]):
-                period = time_subject_text
-                continue
-            elif "сессия" in time_subject_text.lower() and not any(char in time_subject_text for char in [":", "-"]):
-                period = "Сессия"
-                continue
-            
-            if not any(char.isdigit() for char in time_subject_text):
-                continue
-            
-            time_match = re.match(r"(\d{1,2}:\d{2})\s*-\s*(\d{1,2}:\d{2})\s*(.+)", time_subject_text)
-            if time_match:
-                start_time, end_time, subject = time_match.groups()
-                time = f"{start_time} - {end_time}"
-                subject = subject.strip()
-            else:
-                parts = time_subject_text.split(" ", 1)
-                if len(parts) == 2 and "-" in parts[0]:
-                    time = parts[0].replace(" ", "")
-                    subject = parts[1].strip()
-                else:
-                    time = "Нет времени"
-                    subject = time_subject_text if time_subject_text != "Нет данных" else "Нет предмета"
-            
-            details_block = await block.query_selector('div[style="white-space: nowrap;"]')
-            room = await details_block.query_selector('strong') if details_block else None
-            room = await room.inner_text() if room else "Нет данных"
-            room = room.strip()
-            
-            await block.hover()
-            await asyncio.sleep(0.1)
-            dialog = await page.wait_for_selector('div[role="dialog"]', timeout=1000)
-            extra_info = (await dialog.inner_text()).strip().split("\n") if dialog else []
-            await page.mouse.click(0, 0)
-            
-            teacher = "Нет данных"
-            groups = ["Нет данных о группах"]
-            if extra_info:
-                for line in extra_info:
-                    if "Преподаватель:" in line:
-                        teacher = line.replace("Преподаватель:", "").strip()
-                        break
-                else:
-                    for line in extra_info:
-                        if line.strip() and not line.startswith(("Группы:", "Аудитория:")):
-                            teacher = line.strip()
-                            break
+
+        try:
+            logger.info("Загрузка страницы...")
+            await page.goto(url, wait_until="networkidle", timeout=30000)  # Увеличен тайм-аут до 30 секунд
+            await page.wait_for_load_state("domcontentloaded")
+            logger.info("Страница загружена")
+            await asyncio.sleep(2)
+            schedule_blocks = await page.query_selector_all('div.TimeLine_fullcalendarText__fm4tW')
+            logger.info(f"Найдено блоков расписания: {len(schedule_blocks)}")
+
+            if not schedule_blocks:
+                logger.warning("Блоки расписания не найдены, возвращаем пустой список")
+                await browser.close()
+                return []
+
+            schedule = []
+            period = "Не указан"
+
+            for block in schedule_blocks:
+                time_subject_elem = await block.query_selector('strong.TimeLine_eventTitle__oq7tU')
+                time_subject_text = await time_subject_elem.inner_text() if time_subject_elem else "Нет данных"
+                time_subject_text = time_subject_text.strip()
+                logger.debug(f"Обработка блока: {time_subject_text}")
+
+                if "неделя" in time_subject_text.lower() and not any(char in time_subject_text for char in [":", "-"]):
+                    period = time_subject_text
+                    continue
+                elif "сессия" in time_subject_text.lower() and not any(char in time_subject_text for char in [":", "-"]):
+                    period = "Сессия"
+                    continue
                 
-                groups_section = False
-                groups = []
-                for line in extra_info:
-                    if "Группы:" in line:
-                        groups_section = True
-                        continue
-                    if groups_section and line.strip():
-                        if line.startswith("БАСО-") and len(line.strip()) == 10:
-                            groups.append(line.strip())
-                    elif groups_section and not line.strip():
-                        break
-                if not groups:
-                    groups = ["Нет данных о группах"]
-            
-            schedule.append({
-                "period": period,
-                "time": time,
-                "subject": subject,
-                "room": room,
-                "teacher": teacher,
-                "groups": groups
-            })
-        
-        await browser.close()
-    
+                if not any(char.isdigit() for char in time_subject_text):
+                    continue
+                
+                time_match = re.match(r"(\d{1,2}:\d{2})\s*-\s*(\d{1,2}:\d{2})\s*(.+)", time_subject_text)
+                if time_match:
+                    start_time, end_time, subject = time_match.groups()
+                    time = f"{start_time} - {end_time}"
+                    subject = subject.strip()
+                else:
+                    parts = time_subject_text.split(" ", 1)
+                    if len(parts) == 2 and "-" in parts[0]:
+                        time = parts[0].replace(" ", "")
+                        subject = parts[1].strip()
+                    else:
+                        time = "Нет времени"
+                        subject = time_subject_text if time_subject_text != "Нет данных" else "Нет предмета"
+                
+                details_block = await block.query_selector('div[style="white-space: nowrap;"]')
+                room = await details_block.query_selector('strong') if details_block else None
+                room = await room.inner_text() if room else "Нет данных"
+                room = room.strip()
+                await block.hover()
+                await asyncio.sleep(0.5)
+                try:
+                    dialog = await page.wait_for_selector('div[role="dialog"]', timeout=5000)
+                    extra_info = (await dialog.inner_text()).strip().split("\n") if dialog else []
+                    await page.mouse.click(0, 0)
+                except PlaywrightTimeoutError:
+                    logger.warning("Всплывающее окно не появилось")
+                    extra_info = []
+
+                teacher = "Нет данных"
+                groups = ["Нет данных о группах"]
+                if extra_info:
+                    for line in extra_info:
+                        if "Преподаватель:" in line:
+                            teacher = line.replace("Преподаватель:", "").strip()
+                            break
+                    else:
+                        for line in extra_info:
+                            if line.strip() and not line.startswith(("Группы:", "Аудитория:")):
+                                teacher = line.strip()
+                                break
+                    
+                    groups_section = False
+                    groups = []
+                    for line in extra_info:
+                        if "Группы:" in line:
+                            groups_section = True
+                            continue
+                        if groups_section and line.strip():
+                            if line.startswith("БАСО-") and len(line.strip()) == 10:
+                                groups.append(line.strip())
+                        elif groups_section and not line.strip():
+                            break
+                    if not groups:
+                        groups = ["Нет данных о группах"]
+                
+                schedule.append({
+                    "period": period,
+                    "time": time,
+                    "subject": subject,
+                    "room": room,
+                    "teacher": teacher,
+                    "groups": groups
+                })
+
+            logger.info(f"Расписание успешно обработано: {len(schedule)} пар")
+
+        except Exception as e:
+            logger.error(f"Ошибка при парсинге расписания: {e}")
+            schedule = []
+
+        finally:
+            await browser.close()
+
     save_to_cache(group, date, schedule)
     return schedule
 
