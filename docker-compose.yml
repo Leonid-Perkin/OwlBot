@@ -1,12 +1,11 @@
-version: '3'
+version: '3.8'
+
 services:
-  app:
+  owlbot:
     image: leonid27/owl-bot:latest
-    container_name: OwlBot
     volumes:
-      - ./config.py:/app/config.py
-      - ./users.db:/app/users.db
-      - ./lecturers.json:/app/lecturers.json
+      - ./tg.key:/app/tg.key
+      - ./schedule_cache:/app/schedule_cache
     environment:
-      - DATABASE_URL=sqlite:///app/users.db
-      - TZ=Europe/Moscow
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
