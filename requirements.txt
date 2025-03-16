@@ -1,5 +1,4 @@
-aiogram
-playwright
-beautifulsoup4
-urllib3
+telethon
 requests
+beautifulsoup4
+playwright
