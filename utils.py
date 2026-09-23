@@ -241,24 +241,54 @@ async def get_week_schedule(group: str, start_date: str):
     return week_schedule
 
 def fetch_horoscope(sign):
-    url = f"https://horo.mail.ru/prediction/{sign}/today/"
+    url = f"https://astroscope.ru/horoskop/ejednevniy_goroskop/{sign}.html"
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36"
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/131.0.0.0 Safari/537.36"
+        ),
+        "Accept-Language": "ru-RU,ru;q=0.9,en;q=0.8",
     }
     try:
-        response = requests.get(url, headers=headers)
+        response = requests.get(
+            url,
+            headers=headers,
+            timeout=15
+        )
         response.raise_for_status()
+        response.encoding = response.apparent_encoding
         soup = BeautifulSoup(response.text, "html.parser")
-        horoscope_div = soup.find("div", class_="b6a5d4949c e45a4c1552")
-        if horoscope_div:
-            horoscope = horoscope_div.get_text(strip=True)
-            return horoscope
-        else:
-            return "Не удалось найти гороскоп на странице."
+        title = soup.find(
+            lambda tag: tag.name in ["h2", "h3"]
+            and "Гороскоп" in tag.get_text()
+            and "на сегодня" in tag.get_text()
+        )
+        if not title:
+            return "❌ Не удалось найти гороскоп."
+        date = None
+        for element in title.find_all_next():
+            text = element.get_text(" ", strip=True)
+            if re.match(r"\d{1,2}\.\d{1,2}\.\d{4}", text):
+                date = text
+                break
+        paragraph = title.find_next("p")
+        if not paragraph:
+            return "❌ Не удалось найти текст гороскопа."
+        horoscope = paragraph.get_text(" ", strip=True)
+        if not horoscope:
+            return "❌ Текст гороскопа пуст."
+        result = []
+        if date:
+            result.append(f"📅 **{date}**")
+        result.append(f"🔮 **Гороскоп на сегодня**")
+        result.append("")
+        result.append(horoscope)
+        return "\n".join(result)
     except requests.exceptions.RequestException as e:
-        return f"Ошибка при запросе: {e}"
-    except AttributeError:
-        return "Не удалось найти гороскоп на странице."
+        return f"❌ Ошибка при запросе: {e}"
+    except Exception as e:
+        return f"❌ Ошибка при обработке гороскопа: {e}"
 
 async def is_user_admin(chat_id, user_id, client):
     admins = await client.get_participants(chat_id, filter=ChannelParticipantsAdmins)
