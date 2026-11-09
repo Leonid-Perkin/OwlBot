@@ -1,6 +1,10 @@
 import asyncio
 from telethon import TelegramClient
-from handlers import start_command, mention_all_text, handle_callback
+from handlers import start_command, mention_all_text, handle_callback, count_message, stats_command
+from stats import init_stats_db
+
+init_stats_db()
+
 with open('tg.key', 'r') as f:
     config = dict(line.strip().split('=') for line in f if '=' in line)
 
@@ -10,6 +14,8 @@ BOT_TOKEN = config['BOT_TOKEN']
 
 client = TelegramClient('bot_session', API_ID, API_HASH)
 
+client.add_event_handler(count_message)
+client.add_event_handler(stats_command)
 client.add_event_handler(start_command)
 client.add_event_handler(mention_all_text)
 client.add_event_handler(handle_callback)
