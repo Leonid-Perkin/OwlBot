@@ -1,12 +1,13 @@
 from telethon import events, Button
 import asyncio
-from telethon.tl.types import Channel
+from telethon.tl.types import Channel, Chat
 from telethon.errors import QueryIdInvalidError
 from utils import mention_all_users, get_day_schedule, get_week_schedule, fetch_horoscope, is_user_admin, format_schedule
 from menu import get_main_menu, get_group_selection_menu, get_horoscope_menu, zodiac_signs
 from datetime import datetime, timedelta
 
 submenu_messages = {}
+custom_schedule_waiting = {}
 
 @events.register(events.NewMessage(pattern='/start'))
 async def start_command(event):
@@ -15,7 +16,7 @@ async def start_command(event):
 @events.register(events.NewMessage(pattern=r'(?i).*@all.*'))
 async def mention_all_text(event):
     chat = await event.get_chat()
-    if not isinstance(chat, Channel):
+    if not isinstance(chat, (Channel, Chat)):
         await event.reply("Этот запрос работает только в группах.")
         return
     sender = await event.get_sender()
@@ -27,16 +28,31 @@ async def mention_all_text(event):
     bot_id = bot.id
     await mention_all_users(event.client, chat_id, bot_id, event)
 
+@events.register(events.NewMessage)
+async def handle_custom_schedule_input(event):
+    key = (event.chat_id, event.sender_id)
+    if key not in custom_schedule_waiting:
+        return
+    text = event.text.strip()
+    if text.startswith("/"):
+        del custom_schedule_waiting[key]
+        return
+    if len(text.split()) >= 2:
+        group, date = text.split(maxsplit=1)
+        try:
+            datetime.strptime(date, "%Y-%m-%d")
+            del custom_schedule_waiting[key]
+            schedule = await get_day_schedule(group, date)
+            message = format_schedule(schedule, date)
+            await event.reply(message, parse_mode='Markdown')
+        except ValueError:
+            await event.reply("Неверный формат даты. Используйте YYYY-MM-DD (например, 2025-03-15)")
+    else:
+        await event.reply("Неверный формат. Используйте: <группа> <дата YYYY-MM-DD>")
+
 @events.register(events.CallbackQuery)
 async def handle_callback(event):
     chat = await event.get_chat()
-    if not isinstance(chat, Channel):
-        try:
-            await event.answer("Эта команда работает только в группах.", alert=True)
-        except QueryIdInvalidError:
-            pass
-        return
-
     bot = await event.client.get_me()
     bot_id = bot.id
     chat_id = chat.id
@@ -45,6 +61,12 @@ async def handle_callback(event):
     data = event.data.decode('utf-8')
 
     if event.data == b"mention_all":
+        if not isinstance(chat, (Channel, Chat)):
+            try:
+                await event.answer("Эта команда работает только в группах.", alert=True)
+            except QueryIdInvalidError:
+                pass
+            return
         if not await is_user_admin(chat_id, user_id, event.client):
             try:
                 await event.answer("Эта функция доступна только администраторам чата.", alert=True)
@@ -126,7 +148,7 @@ async def handle_callback(event):
         sign = parts[1]
         main_menu_msg_id = int(parts[2])
         rus_name, emoji = next(((k, v[1]) for k, v in zodiac_signs.items() if v[0] == sign), ("Неизвестный знак", "❓"))
-        horoscope = fetch_horoscope(sign)
+        horoscope = await asyncio.to_thread(fetch_horoscope, sign)
         message = (
             f"{emoji} **Гороскоп для {rus_name} на сегодня** {emoji}\n"
             f"────────────────────\n"
@@ -148,27 +170,17 @@ async def handle_callback(event):
             del submenu_messages[parent_key]
 
     elif event.data == b"schedule_custom":
+        custom_schedule_waiting[(chat_id, user_id)] = event.message_id
         await event.reply("Введите команду в формате: <группа> <дата YYYY-MM-DD>\n"
                          "Например: БАСО-03-24 2025-03-15",
                          buttons=[[Button.inline("Отмена", b"cancel")]])
-        
-        @event.client.on(events.NewMessage(chats=chat_id))
-        async def handle_custom_schedule(event_custom):
-            text = event_custom.text.strip()
-            if len(text.split()) >= 2:
-                group, date = text.split(maxsplit=1)
-                try:
-                    datetime.strptime(date, "%Y-%m-%d")
-                    schedule = await get_day_schedule(group, date)
-                    message = format_schedule(schedule, date)
-                    await event_custom.reply(message, parse_mode='Markdown')
-                except ValueError:
-                    await event_custom.reply("Неверный формат даты. Используйте YYYY-MM-DD (например, 2025-03-15)")
-            else:
-                await event_custom.reply("Неверный формат. Используйте: <группа> <дата YYYY-MM-DD>")
-            event.client.remove_event_handler(handle_custom_schedule)
 
-        @event.client.on(events.CallbackQuery(data=b"cancel", chats=chat_id))
-        async def cancel_handler(event_cancel):
-            await event_cancel.reply("Действие отменено")
-            event.client.remove_event_handler(handle_custom_schedule)
+    elif event.data == b"cancel":
+        key = (chat_id, user_id)
+        if key in custom_schedule_waiting:
+            del custom_schedule_waiting[key]
+        try:
+            await event.answer("Действие отменено.")
+        except QueryIdInvalidError:
+            pass
+        await event.reply("Действие отменено.")

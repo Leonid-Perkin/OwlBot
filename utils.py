@@ -64,126 +64,134 @@ def parse_time_to_minutes(time_str: str) -> int:
     except (ValueError, IndexError):
         return float('inf')
 
-async def get_day_schedule(group: str, date: str) -> list:
-    cached_schedule = load_from_cache(group, date)
-    if cached_schedule is not None:
-        return cached_schedule
-    
+async def fetch_schedule_for_date(group: str, date: str, browser) -> list:
     encoded_group = quote(group)
     url = f"https://schedule-of.mirea.ru/?scheduleTitle={encoded_group}&date={date}"
 
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True, args=['--disable-blink-features=AutomationControlled'])
-        context = await browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-            viewport={"width": 1280, "height": 720},
-            extra_http_headers={
-                "Accept": "text/html,application/xhtml+xml",
-                "Accept-Language": "en-US,en;q=0.9",
-                "Referer": "https://schedule-of.mirea.ru/"
-            }
-        )
-        page = await context.new_page()
+    context = await browser.new_context(
+        user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        viewport={"width": 1280, "height": 720},
+        extra_http_headers={
+            "Accept": "text/html,application/xhtml+xml",
+            "Accept-Language": "en-US,en;q=0.9",
+            "Referer": "https://schedule-of.mirea.ru/"
+        }
+    )
+    page = await context.new_page()
 
-        try:
-            await page.goto(url, wait_until="networkidle", timeout=60000)
-            await page.wait_for_load_state("domcontentloaded")
-            await asyncio.sleep(1)
+    try:
+        await page.goto(url, wait_until="networkidle", timeout=60000)
+        await page.wait_for_load_state("domcontentloaded")
+        await asyncio.sleep(1)
 
-            await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-            await asyncio.sleep(0.5)
+        await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+        await asyncio.sleep(0.5)
 
-            schedule_blocks = await page.query_selector_all('div.TimeLine_fullcalendarText__fm4tW')
-            if not schedule_blocks:
-                await browser.close()
-                return []
+        schedule_blocks = await page.query_selector_all('div.TimeLine_fullcalendarText__fm4tW')
+        if not schedule_blocks:
+            return []
 
-            schedule = []
-            period = "Не указан"
+        schedule = []
+        period = "Не указан"
 
-            for i, block in enumerate(schedule_blocks):
-                time_subject_elem = await block.query_selector('strong.TimeLine_eventTitle__oq7tU')
-                time_subject_text = await time_subject_elem.inner_text() if time_subject_elem else "Нет данных"
-                time_subject_text = time_subject_text.strip()
+        for i, block in enumerate(schedule_blocks):
+            time_subject_elem = await block.query_selector('strong.TimeLine_eventTitle__oq7tU')
+            time_subject_text = await time_subject_elem.inner_text() if time_subject_elem else "Нет данных"
+            time_subject_text = time_subject_text.strip()
 
-                if "неделя" in time_subject_text.lower() and not any(char in time_subject_text for char in [":", "-"]):
-                    period = time_subject_text
-                    continue
-                elif "сессия" in time_subject_text.lower() and not any(char in time_subject_text for char in [":", "-"]):
-                    period = "Сессия"
-                    continue
-                
-                time_match = re.match(r"(\d{1,2}:\d{2})\s*-\s*(\d{1,2}:\d{2})\s*(.+)", time_subject_text)
-                if time_match:
-                    start_time, end_time, subject = time_match.groups()
-                    time = f"{start_time} - {end_time}"
-                    subject = subject.strip()
+            if "неделя" in time_subject_text.lower() and not any(char in time_subject_text for char in [":", "-"]):
+                period = time_subject_text
+                continue
+            elif "сессия" in time_subject_text.lower() and not any(char in time_subject_text for char in [":", "-"]):
+                period = "Сессия"
+                continue
+            
+            time_match = re.match(r"(\d{1,2}:\d{2})\s*-\s*(\d{1,2}:\d{2})\s*(.+)", time_subject_text)
+            if time_match:
+                start_time, end_time, subject = time_match.groups()
+                time = f"{start_time} - {end_time}"
+                subject = subject.strip()
+            else:
+                parts = time_subject_text.split(" ", 1)
+                if len(parts) == 2 and "-" in parts[0]:
+                    time = parts[0].replace(" ", "")
+                    subject = parts[1].strip()
                 else:
-                    parts = time_subject_text.split(" ", 1)
-                    if len(parts) == 2 and "-" in parts[0]:
-                        time = parts[0].replace(" ", "")
-                        subject = parts[1].strip()
-                    else:
-                        time = "Нет времени"
-                        subject = time_subject_text if time_subject_text != "Нет данных" else "Нет предмета"
-                
-                details_block = await block.query_selector('div[style="white-space: nowrap;"]')
-                room = await details_block.query_selector('strong') if details_block else None
-                room = await room.inner_text() if room else "Нет данных"
-                room = room.strip()
+                    time = "Нет времени"
+                    subject = time_subject_text if time_subject_text != "Нет данных" else "Нет предмета"
+            
+            details_block = await block.query_selector('div[style="white-space: nowrap;"]')
+            room = await details_block.query_selector('strong') if details_block else None
+            room = await room.inner_text() if room else "Нет данных"
+            room = room.strip()
 
-                await block.hover()
-                await asyncio.sleep(0.2)
-                try:
-                    dialog = await page.wait_for_selector('div[role="dialog"]', timeout=5000)
-                    extra_info = (await dialog.inner_text()).strip().split("\n") if dialog else []
-                    await page.mouse.click(0, 0)
-                except PlaywrightTimeoutError:
-                    extra_info = []
+            await block.hover()
+            await asyncio.sleep(0.2)
+            try:
+                dialog = await page.wait_for_selector('div[role="dialog"]', timeout=5000)
+                extra_info = (await dialog.inner_text()).strip().split("\n") if dialog else []
+                await page.mouse.click(0, 0)
+            except PlaywrightTimeoutError:
+                extra_info = []
 
-                teacher = "Нет данных"
-                groups = ["Нет данных о группах"]
-                if extra_info:
+            teacher = "Нет данных"
+            groups = ["Нет данных о группах"]
+            if extra_info:
+                for line in extra_info:
+                    if "Преподаватель:" in line:
+                        teacher = line.replace("Преподаватель:", "").strip()
+                        break
+                else:
                     for line in extra_info:
-                        if "Преподаватель:" in line:
-                            teacher = line.replace("Преподаватель:", "").strip()
+                        if line.strip() and not line.startswith(("Группы:", "Аудитория:")):
+                            teacher = line.strip()
                             break
-                    else:
-                        for line in extra_info:
-                            if line.strip() and not line.startswith(("Группы:", "Аудитория:")):
-                                teacher = line.strip()
-                                break
-                    
-                    groups_section = False
-                    groups = []
-                    for line in extra_info:
-                        if "Группы:" in line:
-                            groups_section = True
-                            continue
-                        if groups_section and line.strip():
-                            if line.startswith("БАСО-") and len(line.strip()) == 10:
-                                groups.append(line.strip())
-                        elif groups_section and not line.strip():
-                            break
-                    if not groups:
-                        groups = ["Нет данных о группах"]
                 
-                schedule.append({
-                    "period": period,
-                    "time": time,
-                    "subject": subject,
-                    "room": room,
-                    "teacher": teacher,
-                    "groups": groups
-                })
+                groups_section = False
+                groups = []
+                for line in extra_info:
+                    if "Группы:" in line:
+                        groups_section = True
+                        continue
+                    if groups_section and line.strip():
+                        stripped = line.strip()
+                        if re.match(r"^[А-Яа-яA-Za-z]{4}-\d{2}-\d{2}$", stripped):
+                            groups.append(stripped)
+                    elif groups_section and not line.strip():
+                        break
+                if not groups:
+                    groups = ["Нет данных о группах"]
+            
+            schedule.append({
+                "period": period,
+                "time": time,
+                "subject": subject,
+                "room": room,
+                "teacher": teacher,
+                "groups": groups
+            })
 
-            schedule.sort(key=lambda x: parse_time_to_minutes(x["time"]))
+        schedule.sort(key=lambda x: parse_time_to_minutes(x["time"]))
+        return schedule
+    except Exception:
+        return []
+    finally:
+        await context.close()
 
-        except Exception:
-            schedule = []
+async def get_day_schedule(group: str, date: str, browser=None) -> list:
+    cached_schedule = load_from_cache(group, date)
+    if cached_schedule is not None:
+        return cached_schedule
 
-        finally:
-            await browser.close()
+    if browser is not None:
+        schedule = await fetch_schedule_for_date(group, date, browser)
+    else:
+        async with async_playwright() as p:
+            b = await p.chromium.launch(headless=True, args=['--disable-blink-features=AutomationControlled'])
+            try:
+                schedule = await fetch_schedule_for_date(group, date, b)
+            finally:
+                await b.close()
 
     save_to_cache(group, date, schedule)
     return schedule
@@ -234,11 +242,27 @@ def format_schedule(schedule, date):
 async def get_week_schedule(group: str, start_date: str):
     start = datetime.strptime(start_date, "%Y-%m-%d")
     week_schedule = {}
+    missing_dates = []
+
     for i in range(7):
         date = (start + timedelta(days=i)).strftime("%Y-%m-%d")
-        daily_schedule = await get_day_schedule(group, date)
-        week_schedule[date] = daily_schedule
-    return week_schedule
+        cached = load_from_cache(group, date)
+        if cached is not None:
+            week_schedule[date] = cached
+        else:
+            missing_dates.append(date)
+
+    if missing_dates:
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(headless=True, args=['--disable-blink-features=AutomationControlled'])
+            try:
+                for date in missing_dates:
+                    schedule = await get_day_schedule(group, date, browser=browser)
+                    week_schedule[date] = schedule
+            finally:
+                await browser.close()
+
+    return dict(sorted(week_schedule.items()))
 
 def fetch_horoscope(sign):
     url = f"https://astroscope.ru/horoskop/ejednevniy_goroskop/{sign}.html"
@@ -291,5 +315,12 @@ def fetch_horoscope(sign):
         return f"❌ Ошибка при обработке гороскопа: {e}"
 
 async def is_user_admin(chat_id, user_id, client):
-    admins = await client.get_participants(chat_id, filter=ChannelParticipantsAdmins)
-    return any(admin.id == user_id for admin in admins)
+    try:
+        admins = await client.get_participants(chat_id, filter=ChannelParticipantsAdmins)
+        return any(admin.id == user_id for admin in admins)
+    except Exception:
+        try:
+            permissions = await client.get_permissions(chat_id, user_id)
+            return getattr(permissions, 'is_admin', False)
+        except Exception:
+            return False

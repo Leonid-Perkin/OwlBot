@@ -1,8 +1,38 @@
 import asyncio
+import os
+import sys
 from telethon import TelegramClient
-from handlers import start_command, mention_all_text, handle_callback
-with open('tg.key', 'r') as f:
-    config = dict(line.strip().split('=') for line in f if '=' in line)
+from handlers import start_command, mention_all_text, handle_callback, handle_custom_schedule_input
+
+def load_config(filepath='tg.key'):
+    if not os.path.exists(filepath):
+        print(f"Ошибка: Файл конфигурации '{filepath}' не найден!")
+        print("Создайте его вручную или запустите: python makeTGkey.py")
+        sys.exit(1)
+
+    config = {}
+    with open(filepath, 'r', encoding='utf-8') as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith('#'):
+                continue
+            if '=' in line:
+                key, val = line.split('=', 1)
+            elif ':' in line:
+                key, val = line.split(':', 1)
+            else:
+                continue
+            config[key.strip().upper()] = val.strip().strip('"\'')
+
+    required = ['API_ID', 'API_HASH', 'BOT_TOKEN']
+    missing = [k for k in required if k not in config]
+    if missing:
+        print(f"Ошибка в файле '{filepath}': отсутствуют обязательные ключи: {', '.join(missing)}")
+        sys.exit(1)
+
+    return config
+
+config = load_config()
 
 API_ID = int(config['API_ID'])
 API_HASH = config['API_HASH']
@@ -12,6 +42,7 @@ client = TelegramClient('bot_session', API_ID, API_HASH)
 
 client.add_event_handler(start_command)
 client.add_event_handler(mention_all_text)
+client.add_event_handler(handle_custom_schedule_input)
 client.add_event_handler(handle_callback)
 
 async def main():

@@ -25,11 +25,11 @@ cd OwlBot
 
 ### 2. 🔑 Настройка Telegram API
 1. Создайте бота через [@BotFather](https://t.me/BotFather) в Telegram и получите токен.
-2. Создайте файл `tg.key` в корневой директории проекта и добавьте:
+2. Создайте файл `tg.key` в корневой директории проекта (или запустите `python makeTGkey.py`):
    ```
-   api_id: YOUR_API_ID
-   api_hash: YOUR_API_HASH
-   bot_token: YOUR_BOT_TOKEN
+   API_ID=YOUR_API_ID
+   API_HASH=YOUR_API_HASH
+   BOT_TOKEN=YOUR_BOT_TOKEN
    ```
    - Получите `api_id` и `api_hash` на [my.telegram.org](https://my.telegram.org).
 
