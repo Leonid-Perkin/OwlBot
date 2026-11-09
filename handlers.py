@@ -46,7 +46,7 @@ async def mention_all_text(event):
         await event.reply("Этот запрос работает только в группах.")
         return
     sender = await event.get_sender()
-    chat_id = chat.id
+    chat_id = event.chat_id
     if not await is_user_admin(chat_id, sender.id, event.client):
         await event.reply("Эта команда доступна только администраторам чата.")
         return
@@ -81,7 +81,7 @@ async def handle_callback(event):
     chat = await event.get_chat()
     bot = await event.client.get_me()
     bot_id = bot.id
-    chat_id = chat.id
+    chat_id = event.chat_id
     user_id = event.sender_id
 
     data = event.data.decode('utf-8')

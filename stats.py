@@ -37,25 +37,42 @@ async def record_message(chat_id: int, user_id: int, user_name: str, date: str =
         date = datetime.now().strftime("%Y-%m-%d")
     await asyncio.to_thread(_record_message_sync, chat_id, user_id, user_name, date)
 
+def _normalize_chat_ids(chat_id: int) -> list[int]:
+    ids = {chat_id}
+    if chat_id > 0:
+        ids.add(int(f"-100{chat_id}"))
+        ids.add(-chat_id)
+    else:
+        s = str(chat_id)
+        if s.startswith("-100"):
+            ids.add(int(s[4:]))
+        elif s.startswith("-"):
+            ids.add(int(s[1:]))
+    return list(ids)
+
 def _get_day_stats_sync(chat_id: int, date: str, limit: int = 10):
+    chat_ids = _normalize_chat_ids(chat_id)
+    placeholders = ",".join("?" for _ in chat_ids)
+
     with sqlite3.connect(DB_PATH) as conn:
         cursor = conn.cursor()
-        cursor.execute("""
-            SELECT SUM(count), COUNT(user_id)
+        cursor.execute(f"""
+            SELECT SUM(count), COUNT(DISTINCT user_id)
             FROM message_stats
-            WHERE chat_id = ? AND date = ?
-        """, (chat_id, date))
+            WHERE chat_id IN ({placeholders}) AND date = ?
+        """, (*chat_ids, date))
         row = cursor.fetchone()
         total_messages = row[0] or 0
         active_users = row[1] or 0
 
-        cursor.execute("""
-            SELECT user_name, count
+        cursor.execute(f"""
+            SELECT user_name, SUM(count) as total_count
             FROM message_stats
-            WHERE chat_id = ? AND date = ?
-            ORDER BY count DESC
+            WHERE chat_id IN ({placeholders}) AND date = ?
+            GROUP BY user_id
+            ORDER BY total_count DESC
             LIMIT ?
-        """, (chat_id, date, limit))
+        """, (*chat_ids, date, limit))
         top_users = cursor.fetchall()
 
         return total_messages, active_users, top_users
