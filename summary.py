@@ -88,6 +88,7 @@ def generate_summary_sync(messages: list[tuple[str, str]], date_str: str) -> str
             n_threads=threads,
             verbose=False
         )
+        llm.reset()
 
         chat_messages = [
             {
@@ -127,7 +128,8 @@ def generate_summary_sync(messages: list[tuple[str, str]], date_str: str) -> str
 
         summary_text = response["choices"][0]["message"]["content"].strip()
 
-        # Освобождаем оперативную память сразу после генерации
+        # Полный сброс контекста и освобождение памяти
+        llm.reset()
         del llm
         gc.collect()
 

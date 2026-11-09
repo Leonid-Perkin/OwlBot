@@ -175,3 +175,19 @@ async def get_day_messages(chat_id: int, date: str = None, limit: int = 100):
     if date is None:
         date = datetime.now().strftime("%Y-%m-%d")
     return await asyncio.to_thread(_get_day_messages_sync, chat_id, date, limit)
+
+def _clear_chat_messages_sync(chat_id: int, date: str = None):
+    chat_ids = _normalize_chat_ids(chat_id)
+    placeholders = ",".join("?" for _ in chat_ids)
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.cursor()
+        if date:
+            cursor.execute(f"DELETE FROM chat_messages WHERE chat_id IN ({placeholders}) AND date = ?", (*chat_ids, date))
+        else:
+            cursor.execute(f"DELETE FROM chat_messages WHERE chat_id IN ({placeholders})", (*chat_ids,))
+        conn.commit()
+
+async def clear_chat_messages(chat_id: int, date: str = None):
+    if date is None:
+        date = datetime.now().strftime("%Y-%m-%d")
+    await asyncio.to_thread(_clear_chat_messages_sync, chat_id, date)

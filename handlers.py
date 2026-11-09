@@ -4,7 +4,7 @@ from telethon.tl.types import Channel, Chat
 from telethon.errors import QueryIdInvalidError
 from utils import mention_all_users, get_day_schedule, get_week_schedule, fetch_horoscope, is_user_admin, format_schedule
 from menu import get_main_menu, get_group_selection_menu, get_horoscope_menu, zodiac_signs
-from stats import record_message, get_day_stats, format_day_stats, get_day_messages
+from stats import record_message, get_day_stats, format_day_stats, get_day_messages, clear_chat_messages
 from summary import generate_summary
 from datetime import datetime, timedelta
 
@@ -46,7 +46,18 @@ async def summary_command(event):
         return
     wait_msg = await event.reply("⏳ Читаю сообщения и составляю выжимку за сегодня...")
     summary_text = await generate_summary(messages, today)
-    await wait_msg.edit(summary_text, parse_mode='Markdown')
+    await wait_msg.edit(
+        summary_text,
+        parse_mode='Markdown',
+        buttons=[[Button.inline("🔄 Начать с чистого листа", b"reset_summary_context")]]
+    )
+
+@events.register(events.NewMessage(pattern=r'^/(resetsummary|clear_summary|clearsummary)'))
+async def reset_summary_command(event):
+    chat_id = event.chat_id
+    today = datetime.now().strftime("%Y-%m-%d")
+    await clear_chat_messages(chat_id, today)
+    await event.reply("🔄 Контекст переписки для выжимки сброшен! Теперь выжимка начнётся с чистого листа.")
 
 @events.register(events.NewMessage(pattern='/start'))
 async def start_command(event):
@@ -196,7 +207,20 @@ async def handle_callback(event):
             return
         wait_msg = await event.reply("⏳ Читаю сообщения и составляю выжимку за сегодня...")
         summary_text = await generate_summary(messages, today)
-        await wait_msg.edit(summary_text, parse_mode='Markdown')
+        await wait_msg.edit(
+            summary_text,
+            parse_mode='Markdown',
+            buttons=[[Button.inline("🔄 Начать с чистого листа", b"reset_summary_context")]]
+        )
+
+    elif event.data == b"reset_summary_context":
+        today = datetime.now().strftime("%Y-%m-%d")
+        await clear_chat_messages(chat_id, today)
+        try:
+            await event.answer("Контекст выжимки сброшен! Новые сообщения начнут накапливаться с нуля.", alert=True)
+        except QueryIdInvalidError:
+            pass
+        await event.reply("🔄 Контекст переписки сброшен! Теперь выжимка начнётся с чистого листа.")
 
     elif data.startswith("horoscope_"):
         parts = data.split("_")

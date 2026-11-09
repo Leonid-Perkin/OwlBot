@@ -9,7 +9,8 @@ from handlers import (
     handle_custom_schedule_input,
     count_message,
     stats_command,
-    summary_command
+    summary_command,
+    reset_summary_command
 )
 from stats import init_stats_db
 
@@ -54,6 +55,7 @@ client = TelegramClient('bot_session', API_ID, API_HASH)
 client.add_event_handler(count_message)
 client.add_event_handler(stats_command)
 client.add_event_handler(summary_command)
+client.add_event_handler(reset_summary_command)
 client.add_event_handler(start_command)
 client.add_event_handler(mention_all_text)
 client.add_event_handler(handle_custom_schedule_input)
