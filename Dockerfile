@@ -4,6 +4,7 @@ WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
+    libgomp1 \
     build-essential \
     cmake \
     && apt-get clean \
@@ -11,14 +12,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY requirements.txt .
 
-# На amd64 собираем llama-cpp-python с универсальной поддержкой AVX (AVX2=OFF),
-# чтобы бот работал на любых процессорах (AMD A10/FX, Intel Celeron, старых Xeon и современных CPU).
-# На arm64 используем готовый wheel от abetlen.
+# Собираем llama-cpp-python с архитектурой x86-64-v2 + AVX + F16C (без AVX2 и без BMI2),
+# что гарантирует 100% совместимость с процессорами AMD A10/FX, Intel Celeron и старыми серверами.
 ARG TARGETPLATFORM
 RUN if [ "$TARGETPLATFORM" = "linux/arm64" ]; then \
         pip install --no-cache-dir --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu -r requirements.txt; \
     else \
-        CMAKE_ARGS="-DGGML_NATIVE=OFF -DGGML_AVX2=OFF -DGGML_AVX=ON" CMAKE_BUILD_PARALLEL_LEVEL=4 \
+        CMAKE_ARGS="-DGGML_NATIVE=OFF -DGGML_AVX2=OFF -DGGML_BMI2=OFF -DGGML_AVX=ON -DCMAKE_C_FLAGS='-march=x86-64-v2 -mavx -mf16c -mno-bmi2 -mno-avx2' -DCMAKE_CXX_FLAGS='-march=x86-64-v2 -mavx -mf16c -mno-bmi2 -mno-avx2'" \
+        CMAKE_BUILD_PARALLEL_LEVEL=4 \
         pip install --no-cache-dir -r requirements.txt; \
     fi
 
