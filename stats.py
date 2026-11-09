@@ -12,6 +12,7 @@ def _cleanup_old_stats_sync(days_to_keep: int = DAYS_TO_KEEP):
     with sqlite3.connect(DB_PATH) as conn:
         cursor = conn.cursor()
         cursor.execute("DELETE FROM message_stats WHERE date < ?", (cutoff_date,))
+        cursor.execute("DELETE FROM chat_messages WHERE date < ?", (cutoff_date,))
         conn.commit()
 
 async def cleanup_old_stats(days_to_keep: int = DAYS_TO_KEEP):
@@ -34,10 +35,25 @@ def init_stats_db():
             CREATE INDEX IF NOT EXISTS idx_message_stats_date 
             ON message_stats(date)
         """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS chat_messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                chat_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                user_name TEXT NOT NULL,
+                text TEXT NOT NULL,
+                date TEXT NOT NULL,
+                timestamp INTEGER NOT NULL
+            )
+        """)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_chat_messages_chat_date 
+            ON chat_messages(chat_id, date)
+        """)
         conn.commit()
     _cleanup_old_stats_sync()
 
-def _record_message_sync(chat_id: int, user_id: int, user_name: str, date: str):
+def _record_message_sync(chat_id: int, user_id: int, user_name: str, date: str, text: str = None):
     global _last_cleanup_date
     if date != _last_cleanup_date:
         _cleanup_old_stats_sync()
@@ -52,12 +68,23 @@ def _record_message_sync(chat_id: int, user_id: int, user_name: str, date: str):
                 count = count + 1,
                 user_name = excluded.user_name
         """, (chat_id, user_id, user_name, date))
+
+        if text:
+            clean_text = text.strip()
+            if clean_text and not clean_text.startswith('/'):
+                truncated = clean_text[:500]
+                ts = int(datetime.now().timestamp())
+                cursor.execute("""
+                    INSERT INTO chat_messages (chat_id, user_id, user_name, text, date, timestamp)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                """, (chat_id, user_id, user_name, truncated, date, ts))
+
         conn.commit()
 
-async def record_message(chat_id: int, user_id: int, user_name: str, date: str = None):
+async def record_message(chat_id: int, user_id: int, user_name: str, date: str = None, text: str = None):
     if date is None:
         date = datetime.now().strftime("%Y-%m-%d")
-    await asyncio.to_thread(_record_message_sync, chat_id, user_id, user_name, date)
+    await asyncio.to_thread(_record_message_sync, chat_id, user_id, user_name, date, text)
 
 def _normalize_chat_ids(chat_id: int) -> list[int]:
     ids = {chat_id}
@@ -129,3 +156,22 @@ def format_day_stats(total_messages: int, active_users: int, top_users: list, da
 
     lines.append("────────────────────")
     return "\n".join(lines)
+
+def _get_day_messages_sync(chat_id: int, date: str, limit: int = 100):
+    chat_ids = _normalize_chat_ids(chat_id)
+    placeholders = ",".join("?" for _ in chat_ids)
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.cursor()
+        cursor.execute(f"""
+            SELECT user_name, text
+            FROM chat_messages
+            WHERE chat_id IN ({placeholders}) AND date = ?
+            ORDER BY id ASC
+            LIMIT ?
+        """, (*chat_ids, date, limit))
+        return cursor.fetchall()
+
+async def get_day_messages(chat_id: int, date: str = None, limit: int = 100):
+    if date is None:
+        date = datetime.now().strftime("%Y-%m-%d")
+    return await asyncio.to_thread(_get_day_messages_sync, chat_id, date, limit)

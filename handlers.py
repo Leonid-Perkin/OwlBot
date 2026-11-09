@@ -4,7 +4,8 @@ from telethon.tl.types import Channel, Chat
 from telethon.errors import QueryIdInvalidError
 from utils import mention_all_users, get_day_schedule, get_week_schedule, fetch_horoscope, is_user_admin, format_schedule
 from menu import get_main_menu, get_group_selection_menu, get_horoscope_menu, zodiac_signs
-from stats import record_message, get_day_stats, format_day_stats
+from stats import record_message, get_day_stats, format_day_stats, get_day_messages
+from summary import generate_summary
 from datetime import datetime, timedelta
 
 submenu_messages = {}
@@ -25,7 +26,7 @@ async def count_message(event):
         user_name = getattr(sender, 'username', '') or f"id{sender.id}"
 
     today = datetime.now().strftime("%Y-%m-%d")
-    await record_message(event.chat_id, sender.id, user_name, today)
+    await record_message(event.chat_id, sender.id, user_name, today, text=event.text)
 
 @events.register(events.NewMessage(pattern=r'^/(stats|daystats|top)'))
 async def stats_command(event):
@@ -34,6 +35,18 @@ async def stats_command(event):
     total_messages, active_users, top_users = await get_day_stats(chat_id, today)
     text = format_day_stats(total_messages, active_users, top_users, today)
     await event.reply(text, parse_mode='Markdown')
+
+@events.register(events.NewMessage(pattern=r'^/(summary|digest|tldr)'))
+async def summary_command(event):
+    chat_id = event.chat_id
+    today = datetime.now().strftime("%Y-%m-%d")
+    messages = await get_day_messages(chat_id, today)
+    if not messages or len(messages) < 3:
+        await event.reply("В чате за сегодня недостаточно сообщений для составления выжимки (нужно хотя бы 3 сообщения).")
+        return
+    wait_msg = await event.reply("⏳ Читаю сообщения и составляю выжимку за сегодня...")
+    summary_text = await generate_summary(messages, today)
+    await wait_msg.edit(summary_text, parse_mode='Markdown')
 
 @events.register(events.NewMessage(pattern='/start'))
 async def start_command(event):
@@ -174,6 +187,16 @@ async def handle_callback(event):
         total_messages, active_users, top_users = await get_day_stats(chat_id, today)
         message = format_day_stats(total_messages, active_users, top_users, today)
         await event.reply(message, parse_mode='Markdown')
+
+    elif event.data == b"day_summary":
+        today = datetime.now().strftime("%Y-%m-%d")
+        messages = await get_day_messages(chat_id, today)
+        if not messages or len(messages) < 3:
+            await event.reply("В чате за сегодня недостаточно сообщений для составления выжимки (нужно хотя бы 3 сообщения).")
+            return
+        wait_msg = await event.reply("⏳ Читаю сообщения и составляю выжимку за сегодня...")
+        summary_text = await generate_summary(messages, today)
+        await wait_msg.edit(summary_text, parse_mode='Markdown')
 
     elif data.startswith("horoscope_"):
         parts = data.split("_")

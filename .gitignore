@@ -168,3 +168,5 @@ tg2.key
 *.session-journal
 schedule_cache/
 venv/
+models/
+*.gguf
