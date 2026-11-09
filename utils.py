@@ -19,20 +19,38 @@ def chunk_list(lst, size):
         yield lst[i:i + size]
 
 async def mention_all_users(client, chat_id, bot_id, event=None):
-    participants = await client.get_participants(chat_id)
-    if not participants:
-        await client.send_message(chat_id, "Не удалось получить список участников.")
+    try:
+        participants = await client.get_participants(chat_id)
+    except Exception as e:
+        if event:
+            await event.reply(f"Не удалось получить список участников: {e}")
+        else:
+            await client.send_message(chat_id, f"Не удалось получить список участников: {e}")
         return
+
+    if not participants:
+        if event:
+            await event.reply("Не удалось получить список участников.")
+        else:
+            await client.send_message(chat_id, "Не удалось получить список участников.")
+        return
+
     batch_size = 100
     for batch in chunk_list(participants, batch_size):
         mention_str = ' '.join(f'<a href="tg://user?id={p.id}">{p.first_name or "User"}</a>' 
                             for p in batch if p.id != bot_id)
-        await client.send_message(chat_id, mention_str, parse_mode='html')
+        if event:
+            await event.reply(mention_str, parse_mode='html')
+        else:
+            await client.send_message(chat_id, mention_str, parse_mode='html')
+
     if event and hasattr(event, 'answer'):
         try:
             await event.answer("Все пользователи упомянуты!", alert=True)
-        except QueryIdInvalidError:
+        except Exception:
             pass
+    elif event:
+        await event.reply("Все пользователи упомянуты!")
     else:
         await client.send_message(chat_id, "Все пользователи упомянуты!")
 

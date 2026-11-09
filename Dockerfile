@@ -30,7 +30,11 @@ RUN mkdir -p /app/models && \
     curl -L -o /app/models/qwen2.5-1.5b-instruct-q4_k_m.gguf \
     https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf
 
-RUN apt-get purge -y build-essential cmake && apt-get autoremove -y && apt-get clean
+RUN apt-get purge -y build-essential cmake \
+    && apt-get install -y --no-install-recommends libgomp1 \
+    && apt-get autoremove -y \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
 
 COPY . .
 
