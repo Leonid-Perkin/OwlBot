@@ -2,7 +2,17 @@ import asyncio
 import os
 import sys
 from telethon import TelegramClient
-from handlers import start_command, mention_all_text, handle_callback, handle_custom_schedule_input
+from handlers import (
+    start_command,
+    mention_all_text,
+    handle_callback,
+    handle_custom_schedule_input,
+    count_message,
+    stats_command
+)
+from stats import init_stats_db
+
+init_stats_db()
 
 def load_config(filepath='tg.key'):
     if not os.path.exists(filepath):
@@ -40,6 +50,8 @@ BOT_TOKEN = config['BOT_TOKEN']
 
 client = TelegramClient('bot_session', API_ID, API_HASH)
 
+client.add_event_handler(count_message)
+client.add_event_handler(stats_command)
 client.add_event_handler(start_command)
 client.add_event_handler(mention_all_text)
 client.add_event_handler(handle_custom_schedule_input)

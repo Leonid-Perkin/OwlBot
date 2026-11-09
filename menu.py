@@ -22,7 +22,8 @@ def get_main_menu():
         [Button.inline("📆 Расписание на завтра", b"schedule_tomorrow")],
         [Button.inline("🗓 Расписание на неделю", b"schedule_week")],
         [Button.inline("✏ Указать дату и группу", b"schedule_custom")],
-        [Button.inline("🌟 Гороскоп на сегодня", b"horoscope")]
+        [Button.inline("🌟 Гороскоп на сегодня", b"horoscope")],
+        [Button.inline("📊 Сообщения за день", b"day_stats")]
     ]
 
 def get_group_selection_menu(action, main_menu_msg_id):

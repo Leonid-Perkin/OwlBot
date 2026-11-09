@@ -4,10 +4,36 @@ from telethon.tl.types import Channel, Chat
 from telethon.errors import QueryIdInvalidError
 from utils import mention_all_users, get_day_schedule, get_week_schedule, fetch_horoscope, is_user_admin, format_schedule
 from menu import get_main_menu, get_group_selection_menu, get_horoscope_menu, zodiac_signs
+from stats import record_message, get_day_stats, format_day_stats
 from datetime import datetime, timedelta
 
 submenu_messages = {}
 custom_schedule_waiting = {}
+
+@events.register(events.NewMessage)
+async def count_message(event):
+    if not event.chat_id:
+        return
+    sender = await event.get_sender()
+    if not sender or getattr(sender, 'bot', False):
+        return
+
+    first_name = getattr(sender, 'first_name', '') or ''
+    last_name = getattr(sender, 'last_name', '') or ''
+    user_name = f"{first_name} {last_name}".strip()
+    if not user_name:
+        user_name = getattr(sender, 'username', '') or f"id{sender.id}"
+
+    today = datetime.now().strftime("%Y-%m-%d")
+    await record_message(event.chat_id, sender.id, user_name, today)
+
+@events.register(events.NewMessage(pattern=r'^/(stats|daystats|top)'))
+async def stats_command(event):
+    chat_id = event.chat_id
+    today = datetime.now().strftime("%Y-%m-%d")
+    total_messages, active_users, top_users = await get_day_stats(chat_id, today)
+    text = format_day_stats(total_messages, active_users, top_users, today)
+    await event.reply(text, parse_mode='Markdown')
 
 @events.register(events.NewMessage(pattern='/start'))
 async def start_command(event):
@@ -142,6 +168,12 @@ async def handle_callback(event):
         msg = await event.reply("Выберите знак зодиака для гороскопа на сегодня:", 
                               buttons=get_horoscope_menu(main_menu_msg_id))
         submenu_messages[(chat_id, main_menu_msg_id)] = msg.id
+
+    elif event.data == b"day_stats":
+        today = datetime.now().strftime("%Y-%m-%d")
+        total_messages, active_users, top_users = await get_day_stats(chat_id, today)
+        message = format_day_stats(total_messages, active_users, top_users, today)
+        await event.reply(message, parse_mode='Markdown')
 
     elif data.startswith("horoscope_"):
         parts = data.split("_")
