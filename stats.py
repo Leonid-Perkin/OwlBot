@@ -1,9 +1,21 @@
 import sqlite3
 import os
 import asyncio
-from datetime import datetime
+from datetime import datetime, timedelta
 
 DB_PATH = os.environ.get("STATS_DB_PATH", os.path.join(os.path.dirname(__file__), "stats.db"))
+DAYS_TO_KEEP = 2
+_last_cleanup_date = None
+
+def _cleanup_old_stats_sync(days_to_keep: int = DAYS_TO_KEEP):
+    cutoff_date = (datetime.now() - timedelta(days=days_to_keep)).strftime("%Y-%m-%d")
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM message_stats WHERE date < ?", (cutoff_date,))
+        conn.commit()
+
+async def cleanup_old_stats(days_to_keep: int = DAYS_TO_KEEP):
+    await asyncio.to_thread(_cleanup_old_stats_sync, days_to_keep)
 
 def init_stats_db():
     with sqlite3.connect(DB_PATH) as conn:
@@ -18,9 +30,19 @@ def init_stats_db():
                 PRIMARY KEY (chat_id, user_id, date)
             )
         """)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_message_stats_date 
+            ON message_stats(date)
+        """)
         conn.commit()
+    _cleanup_old_stats_sync()
 
 def _record_message_sync(chat_id: int, user_id: int, user_name: str, date: str):
+    global _last_cleanup_date
+    if date != _last_cleanup_date:
+        _cleanup_old_stats_sync()
+        _last_cleanup_date = date
+
     with sqlite3.connect(DB_PATH) as conn:
         cursor = conn.cursor()
         cursor.execute("""
