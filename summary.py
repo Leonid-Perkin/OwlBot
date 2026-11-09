@@ -3,7 +3,10 @@ import gc
 import re
 import urllib.request
 import asyncio
+import logging
 from datetime import datetime
+
+logger = logging.getLogger("summary")
 
 MODEL_DIR = os.path.join(os.path.dirname(__file__), "models")
 MODEL_FILENAME = "qwen2.5-1.5b-instruct-q4_k_m.gguf"
@@ -80,8 +83,11 @@ def generate_summary_sync(messages: list[tuple[str, str]], date_str: str) -> str
     except ImportError:
         return "❌ Ошибка: пакет llama-cpp-python не установлен."
 
+    logger.info("Запуск генерации выжимки для %d сообщений...", len(clean_texts))
+
     try:
         threads = min(4, os.cpu_count() or 2)
+        logger.info("Загрузка модели из %s (потоков: %d)...", MODEL_PATH, threads)
         llm = Llama(
             model_path=MODEL_PATH,
             n_ctx=2048,
@@ -89,6 +95,7 @@ def generate_summary_sync(messages: list[tuple[str, str]], date_str: str) -> str
             verbose=False
         )
         llm.reset()
+        logger.info("Модель успешно загружена, генерация текста...")
 
         chat_messages = [
             {
@@ -127,6 +134,7 @@ def generate_summary_sync(messages: list[tuple[str, str]], date_str: str) -> str
         )
 
         summary_text = response["choices"][0]["message"]["content"].strip()
+        logger.info("Генерация успешно завершена (длина ответа: %d)", len(summary_text))
 
         # Полный сброс контекста и освобождение памяти
         llm.reset()

@@ -45,12 +45,22 @@ async def summary_command(event):
         await event.reply("В чате за сегодня недостаточно сообщений для составления выжимки (нужно хотя бы 3 сообщения).")
         return
     wait_msg = await event.reply("⏳ Читаю сообщения и составляю выжимку за сегодня...")
-    summary_text = await generate_summary(messages, today)
-    await wait_msg.edit(
-        summary_text,
-        parse_mode='Markdown',
-        buttons=[[Button.inline("🔄 Начать с чистого листа", b"reset_summary_context")]]
-    )
+    try:
+        summary_text = await generate_summary(messages, today)
+        try:
+            await wait_msg.edit(
+                summary_text,
+                parse_mode='Markdown',
+                buttons=[[Button.inline("🔄 Начать с чистого листа", b"reset_summary_context")]]
+            )
+        except Exception:
+            await wait_msg.edit(
+                summary_text,
+                parse_mode=None,
+                buttons=[[Button.inline("🔄 Начать с чистого листа", b"reset_summary_context")]]
+            )
+    except Exception as e:
+        await wait_msg.edit(f"❌ Ошибка при формировании выжимки: {e}")
 
 @events.register(events.NewMessage(pattern=r'^/(resetsummary|clear_summary|clearsummary)'))
 async def reset_summary_command(event):
@@ -206,12 +216,22 @@ async def handle_callback(event):
             await event.reply("В чате за сегодня недостаточно сообщений для составления выжимки (нужно хотя бы 3 сообщения).")
             return
         wait_msg = await event.reply("⏳ Читаю сообщения и составляю выжимку за сегодня...")
-        summary_text = await generate_summary(messages, today)
-        await wait_msg.edit(
-            summary_text,
-            parse_mode='Markdown',
-            buttons=[[Button.inline("🔄 Начать с чистого листа", b"reset_summary_context")]]
-        )
+        try:
+            summary_text = await generate_summary(messages, today)
+            try:
+                await wait_msg.edit(
+                    summary_text,
+                    parse_mode='Markdown',
+                    buttons=[[Button.inline("🔄 Начать с чистого листа", b"reset_summary_context")]]
+                )
+            except Exception:
+                await wait_msg.edit(
+                    summary_text,
+                    parse_mode=None,
+                    buttons=[[Button.inline("🔄 Начать с чистого листа", b"reset_summary_context")]]
+                )
+        except Exception as e:
+            await wait_msg.edit(f"❌ Ошибка при формировании выжимки: {e}")
 
     elif event.data == b"reset_summary_context":
         today = datetime.now().strftime("%Y-%m-%d")

@@ -1,7 +1,13 @@
 import asyncio
 import os
 import sys
+import logging
 from telethon import TelegramClient
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(name)s: %(message)s'
+)
 from handlers import (
     start_command,
     mention_all_text,
