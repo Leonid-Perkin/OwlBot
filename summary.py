@@ -5,11 +5,11 @@ import asyncio
 from datetime import datetime
 
 MODEL_DIR = os.path.join(os.path.dirname(__file__), "models")
-MODEL_FILENAME = "qwen2.5-0.5b-instruct-q4_k_m.gguf"
+MODEL_FILENAME = "qwen2.5-1.5b-instruct-q4_k_m.gguf"
 DEFAULT_MODEL_PATH = os.path.join(MODEL_DIR, MODEL_FILENAME)
 MODEL_PATH = os.environ.get("LLM_MODEL_PATH", DEFAULT_MODEL_PATH)
 MODEL_DOWNLOAD_URL = (
-    "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf"
+    "https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf"
 )
 
 def ensure_model_exists():
@@ -62,15 +62,17 @@ def generate_summary_sync(messages: list[tuple[str, str]], date_str: str) -> str
             {
                 "role": "system",
                 "content": (
-                    "Ты — русскоязычный ИИ-ассистент. Сделай краткую содержательную выжимку "
-                    "переписки участников группового чата за день. Выдели ключевые темы, решения "
-                    "и договорённости. Отвечай на русском языке в виде 3-5 коротких тезисов с эмодзи. "
-                    "Не выдумывай факты, которых не было в сообщениях."
+                    "Ты — русскоязычный аналитик чата. Твоя задача — составить краткую выжимку переписки за день.\n"
+                    "ПРАВИЛА:\n"
+                    "1. Перескажи суть обсуждений СВОИМИ СЛОВАМИ. Категорически ЗАПРЕЩЕНО цитировать или копировать сообщения!\n"
+                    "2. Опиши главные темы, договорённости, вопросы и выводы участников.\n"
+                    "3. Формат: 2-5 кратких пунктов, каждый с новой строки, начиная с подходящего эмодзи (💬, 📌, 🤝, ⏰).\n"
+                    "4. Отвечай кратко и только по фактам из диалога."
                 )
             },
             {
                 "role": "user",
-                "content": f"Вот сообщения из чата:\n{dialogue}\n\nСделай краткую выжимку переписки:"
+                "content": f"Вот переписка в чате:\n{dialogue}\n\nСделай краткую выжимку своими словами:"
             }
         ]
 
@@ -97,7 +99,7 @@ def generate_summary_sync(messages: list[tuple[str, str]], date_str: str) -> str
             f"────────────────────\n"
             f"{summary_text}\n"
             f"────────────────────\n"
-            f"🤖 _Сгенерировано локальной моделью Qwen2.5-0.5B_"
+            f"🤖 _Сгенерировано локальной моделью Qwen2.5-1.5B_"
         )
 
     except Exception as e:
