@@ -11,6 +11,8 @@ tg2.key
 *.session*
 stats.db
 *.db
+data
+data/**
 **/models
 **/models/**
 *.gguf

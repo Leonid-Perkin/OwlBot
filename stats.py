@@ -19,6 +19,7 @@ async def cleanup_old_stats(days_to_keep: int = DAYS_TO_KEEP):
     await asyncio.to_thread(_cleanup_old_stats_sync, days_to_keep)
 
 def init_stats_db():
+    os.makedirs(os.path.dirname(os.path.abspath(DB_PATH)), exist_ok=True)
     with sqlite3.connect(DB_PATH) as conn:
         cursor = conn.cursor()
         cursor.execute("""

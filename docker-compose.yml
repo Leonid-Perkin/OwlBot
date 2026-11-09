@@ -7,8 +7,9 @@ services:
     volumes:
       - ./tg.key:/app/tg.key:z
       - ./schedule_cache:/app/schedule_cache:z
-      - ./stats.db:/app/stats.db:z
+      - ./data:/app/data:z
     environment:
       - PYTHONUNBUFFERED=1
       - TZ=Europe/Moscow
+      - STATS_DB_PATH=/app/data/stats.db
     restart: unless-stopped
