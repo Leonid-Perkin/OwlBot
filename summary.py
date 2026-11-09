@@ -30,19 +30,22 @@ def generate_summary_sync(messages: list[tuple[str, str]], date_str: str) -> str
     except Exception as e:
         return f"❌ Ошибка при загрузке модели: {e}"
 
-    # Build dialogue transcript
-    transcript_lines = []
-    total_chars = 0
-    # Take up to the last 80 messages if chat is huge
+    # Build continuous text corpus without author names to prevent roleplay and line-by-line quoting
     selected_messages = messages[-80:]
-    for user_name, text in selected_messages:
-        line = f"{user_name}: {text}"
-        transcript_lines.append(line)
-        total_chars += len(line)
-        if total_chars > 3500:
-            break
+    clean_texts = []
+    total_chars = 0
+    for _, text in selected_messages:
+        clean = text.strip()
+        if len(clean) > 1:
+            clean_texts.append(clean)
+            total_chars += len(clean)
+            if total_chars > 3500:
+                break
 
-    dialogue = "\n".join(transcript_lines)
+    if not clean_texts or len(clean_texts) < 3:
+        return "В чате за сегодня недостаточно содержательных сообщений для составления выжимки."
+
+    text_corpus = ". ".join(clean_texts)
 
     try:
         from llama_cpp import Llama
@@ -62,24 +65,24 @@ def generate_summary_sync(messages: list[tuple[str, str]], date_str: str) -> str
             {
                 "role": "system",
                 "content": (
-                    "Ты — русскоязычный аналитик чата. Твоя задача — составить краткую выжимку переписки за день.\n"
+                    "Ты — русскоязычный редактор. Проанализируй сообщения из группового чата и напиши краткую связную выжимку дня.\n"
                     "ПРАВИЛА:\n"
-                    "1. Перескажи суть обсуждений СВОИМИ СЛОВАМИ. Категорически ЗАПРЕЩЕНО цитировать или копировать сообщения!\n"
-                    "2. Опиши главные темы, договорённости, вопросы и выводы участников.\n"
-                    "3. Формат: 2-5 кратких пунктов, каждый с новой строки, начиная с подходящего эмодзи (💬, 📌, 🤝, ⏰).\n"
-                    "4. Отвечай кратко и только по фактам из диалога."
+                    "1. Напиши своими словами, о чём говорили участники, какие темы и вопросы обсуждались (1-2 кратких связных абзаца).\n"
+                    "2. Категорически ЗАПРЕЩЕНО цитировать сообщения и писать по ролям (не пиши, кто что сказал)!\n"
+                    "3. Пиши грамотно, по существу и без лишней воды."
                 )
             },
             {
                 "role": "user",
-                "content": f"Вот переписка в чате:\n{dialogue}\n\nСделай краткую выжимку своими словами:"
+                "content": f"Сообщения участников за день:\n{text_corpus}\n\nКраткая выжимка (о чём общались своими словами):"
             }
         ]
 
         response = llm.create_chat_completion(
             messages=chat_messages,
-            max_tokens=250,
-            temperature=0.3,
+            max_tokens=220,
+            temperature=0.25,
+            repeat_penalty=1.15,
             stop=["<|im_end|>", "<|im_start|>"]
         )
 
