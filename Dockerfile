@@ -26,10 +26,10 @@ RUN if [ "$TARGETPLATFORM" = "linux/arm64" ]; then \
 RUN playwright install --with-deps chromium \
     && rm -rf /var/lib/apt/lists/*
 
-# Вшиваем модель Qwen2.5-1.5B прямо в Docker-образ для мгновенного старта и автономной работы
+# Вшиваем модель Google Gemma 2 2B (Q3_K_M) прямо в Docker-образ для мгновенного старта и автономной работы
 RUN mkdir -p /app/models && \
-    curl -L -o /app/models/qwen2.5-1.5b-instruct-q4_k_m.gguf \
-    https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf
+    curl -L -o /app/models/gemma-2-2b-it.Q3_K_M.gguf \
+    https://huggingface.co/MaziyarPanahi/gemma-2-2b-it-GGUF/resolve/main/gemma-2-2b-it.Q3_K_M.gguf
 
 RUN apt-get purge -y build-essential cmake \
     && apt-get install -y --no-install-recommends libgomp1 \
