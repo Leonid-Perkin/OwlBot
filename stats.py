@@ -158,21 +158,23 @@ def format_day_stats(total_messages: int, active_users: int, top_users: list, da
     lines.append("────────────────────")
     return "\n".join(lines)
 
-def _get_day_messages_sync(chat_id: int, date: str, limit: int = 100):
+def _get_day_messages_sync(chat_id: int, date: str, limit: int = 150):
     chat_ids = _normalize_chat_ids(chat_id)
     placeholders = ",".join("?" for _ in chat_ids)
     with sqlite3.connect(DB_PATH) as conn:
         cursor = conn.cursor()
         cursor.execute(f"""
-            SELECT user_name, text
-            FROM chat_messages
-            WHERE chat_id IN ({placeholders}) AND date = ?
-            ORDER BY id ASC
-            LIMIT ?
+            SELECT user_name, text FROM (
+                SELECT id, user_name, text
+                FROM chat_messages
+                WHERE chat_id IN ({placeholders}) AND date = ?
+                ORDER BY id DESC
+                LIMIT ?
+            ) ORDER BY id ASC
         """, (*chat_ids, date, limit))
         return cursor.fetchall()
 
-async def get_day_messages(chat_id: int, date: str = None, limit: int = 100):
+async def get_day_messages(chat_id: int, date: str = None, limit: int = 150):
     if date is None:
         date = datetime.now().strftime("%Y-%m-%d")
     return await asyncio.to_thread(_get_day_messages_sync, chat_id, date, limit)
